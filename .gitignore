@@ -1,0 +1,22 @@
+.pio/
+backup/
+logs/
+rf-captures/
+__pycache__/
+*.py[cod]
+*.iq
+*.pcap
+*.pcapng
+sdkconfig.old
+.vscode/
+.tmp_ar/
+.tmp_*.o
+tmpobjs/
+tmpobjs2/
+input_passthrough/bin/NS Input Passthrough.ini
+
+# 調査の記録。手元には残すが、公開するリポジトリへは入れない。
+notes/
+run-logs/
+CLAUDE.md
+AGENTS.md

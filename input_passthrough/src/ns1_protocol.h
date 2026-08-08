@@ -1,0 +1,13 @@
+#ifndef NS1_PROTOCOL_H
+#define NS1_PROTOCOL_H
+
+#define CMD_INPUT_STATE 0x01
+#define CMD_PAIR 0x02
+#define CMD_WAKE_UP 0x13
+#define CMD_RECONNECT 0x15
+#define CMD_DISCONNECT 0x16
+#define CMD_BLE_SCAN 0x17
+#define CMD_NS2_WAKE_UP 0x18
+#define INPUT_PAYLOAD_SIZE 21
+
+#endif
