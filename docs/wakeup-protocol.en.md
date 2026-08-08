@@ -215,7 +215,7 @@ The following reference values were obtained from RF captures of Nintendo and th
 | Phase 1 transmission interval | 3.75 ms |
 | Time from the start of Phase 1 transmission to the Phase 2 response | 1604–2386 us |
 | Duration of consecutive Phase 2 responses | ~40 ms |
-| Phase 2 response interval | Approximately 320 ms |
+| Phase 2 response interval | ~320 ms |
 | Time from the Phase 2 response to Phase 3 transmission | 634 us |
 | Time from Phase 3 to the Switch response | 1870 us |
 
