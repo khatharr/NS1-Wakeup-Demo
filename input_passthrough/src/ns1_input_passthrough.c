@@ -330,7 +330,8 @@ static DWORD WINAPI worker_main(LPVOID parameter)
             {
                 if(home_pressed && !home_was_pressed)
                     run_action(serial, selected_wake_action(), &connect_requested);
-                else if(other_button_pressed && !other_button_was_pressed)
+                else if(other_button_pressed && !other_button_was_pressed &&
+                        !connect_requested)
                     run_action(serial, ACTION_RECONNECT, &connect_requested);
             }
             home_was_pressed = home_pressed;
