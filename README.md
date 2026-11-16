@@ -1,73 +1,74 @@
 # NS1 Wakeup Demo
 
-日本語 | [English](README.en.md)
+[日本語](README.ja.md) | English
 
-ESP32をNintendo Switch 1のPro Controllerとして動作させ、スリープ解除の通信フローをエミュレートします。
+This project uses an ESP32 to emulate a Pro Controller for the original Nintendo Switch, referred to as Switch 1 in this project, including the communication flow used to wake the console from sleep mode.
 
-## 必要なもの
+## Requirements
 
-- ESP32 Rev3が搭載されたボード
+- A board with an ESP32 chip revision 3
 - Windows PC
 - PlatformIO Core
 - SDL3
 
-動作テスト用の`NS Input Passthrough`は実行ファイルと同じディレクトリの`SDL3.dll`を使用し、存在しない場合はSteamのインストール先から読み込みます。
+`NS Input Passthrough`, which is used for testing, loads `SDL3.dll` from the same directory as the executable.
+If the file is not present there, it loads the DLL from the Steam installation directory.
 
-## 対応環境と制約
+## Supported Environment and Limitations
 
-ESP32 Rev3とESP-IDF 5.5.0の組み合わせで動作を確認しています。<br>
-ファームウェアはPlatformIO上のESP-IDF 5.5.0でビルド可能であることを確認しています。
+The current implementation has been tested with an ESP32 chip revision 3 and ESP-IDF 5.5.0.
+The firmware has been confirmed to build with ESP-IDF 5.5.0 on PlatformIO.
 
-ESP-IDFのAPIで管理できないベースバンド制御のため、ファームウェアはROMと共有メモリを直接操作します。<br>
-そのため、異なるリビジョンのESP32では正常に動作しない可能性があります。
+Because some Bluetooth controller settings cannot be configured through the public ESP-IDF APIs, the firmware directly accesses ROM and shared memory.
+As a result, it may not work correctly on other ESP32 revisions.
 
-## セットアップ
+## Setup
 
-### ファームウェアをESP32へ書き込む
+### Flash the Firmware to the ESP32
 
-プロジェクトのルートディレクトリで次のコマンドを実行します。<br>
-コマンドの`COMxxx`には、ESP32のCOMポート名を指定してください。
+Run the following command from the project root directory.
+Replace `COMxxx` with the COM port assigned to the ESP32.
 
 ```powershell
 pio run --target upload --upload-port COMxxx
 ```
 
-### Pro ControllerとしてSwitchへ登録する
+### Pair the ESP32 with the Switch as a Pro Controller
 
-スリープ解除を行うためには、Switchとコントローラーのペアリングが行われている必要があります。
+The controller must be paired with the Switch before it can wake the console from sleep mode.
 
-`NS Input Passthrough`を起動し、ESP32のCOMポートを選択して`Open Port`をクリックします。<br>
-登録をやり直す場合は`Pair`をクリックします。
+Launch `NS Input Passthrough`, select the ESP32's COM port, and click `Open Port`.
+To pair the controller again, click `Pair`.
 
 ```powershell
 & '.\input_passthrough\bin\NS Input Passthrough.exe'
 ```
 
-### パススルーのテスト
+### Test Input Passthrough
 
-接続先のSwitch本体に合わせて`NS1`または`NS2`の項目を選択して切り替えます。<br>
-Switchがスリープ状態に入っている際にPC接続したコントローラーのHOMEボタンまたはPSボタンを押すと、スリープ解除処理と再接続処理が開始されます。<br>
-Switchと未接続の状態でHOME以外のボタンを押すと、通常の再接続処理が開始されます。<br>
-GUIの`Reconnect`、`Wake Up`、`Disconnect`から、各接続操作を手動で実行できます。
+Select `NS1` or `NS2` to match the target Switch console.
+While the Switch is in sleep mode, press the HOME or PS button on a controller connected to the PC to start the wake-up and reconnection process.
+When the ESP32 is not connected to the Switch, pressing any button other than HOME starts the normal reconnection process.
+You can also manually start each connection operation using `Reconnect`, `Wake Up`, and `Disconnect` in the GUI.
 
-Switch 2のスリープ解除機能を使用する場合は`NS2`を選択して`BLE Scan`をクリックし、Switch 2とペアリング済みのSwitch 2用コントローラーでスリープ解除操作を行ってパケットキャプチャしておく必要があります。<br>
-ウェイクアップパケットの保存後はESP32からSwitch 2のスリープ解除が行えるようになります。
+To use the Switch 2 wake-up feature, select `NS2`, click `BLE Scan`, and capture the wake-up packet in advance by waking the Switch 2 with a Switch 2 controller that is already paired with it.
+After the wake-up packet has been saved, the ESP32 can wake the Switch 2 from sleep mode.
 
-## ディレクトリ構成
+## Directory Structure
 
-| パス | 内容 |
+| Path | Description |
 |---|---|
-| `src/main.c` | Bluetoothの初期化とタスクの生成 |
-| `src/bt/` | ペアリング、接続状態、HID接続の管理 |
-| `src/hid/` | Pro ControllerのHIDレポート処理 |
-| `src/bridge/` | UARTフレームの受信とコマンド処理 |
-| `src/wake/` | ウェイクアップ通信と接続サイクルの管理 |
-| `src/baseband/` | BluetoothコントローラーのROMと共有メモリを操作する処理 |
-| `input_passthrough/` | Windows PCのゲームコントローラー入力をESP32へ送信するテストツール |
-| `docs/` | [Switch 1ウェイクアッププロトコル](docs/wakeup-protocol.md)の説明 |
+| `src/main.c` | Initializes Bluetooth and creates tasks |
+| `src/bt/` | Manages pairing, connection state, and HID connections |
+| `src/hid/` | Processes Pro Controller HID reports |
+| `src/bridge/` | Receives UART frames and processes commands |
+| `src/wake/` | Manages wake-up communication and connection cycles |
+| `src/baseband/` | Directly accesses the Bluetooth controller's ROM and shared memory |
+| `input_passthrough/` | Test tool that sends input from a Windows PC game controller to the ESP32 |
+| `docs/` | [Switch 1 wake-up protocol documentation](docs/wakeup-protocol.en.md) |
 
-## ライセンス
+## License
 
-本プロジェクトに含まれるソースコード、ドキュメントは[CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/)ライセンスの下で提供されます。
+The source code and documentation included in this project are provided under the [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) license.
 
-適切なクレジット表記と変更点の明示を条件に、非営利目的であればこのプロジェクトを制作物に使用することが可能です。
+You may use this project in your own work for noncommercial purposes, provided that you give appropriate credit and indicate any changes.
