@@ -29,12 +29,12 @@
 
 #define TAG "swpro"
 
-// CSB受信状態を初期化するため、3回ごとに再起動する
+// Restart every three cycles to reset CSB receive state.
 #define CYCLE_SOFT_RETRY 3
 
 #define CYCLE_SOFT_RETRY_GAP_US INT64_C(2500000)
 
-// 起動直後のハードウェアエラーを避けるため、1.5秒待機する
+// Wait 1.5 seconds to avoid hardware errors immediately after boot.
 #define CYCLE_WAKE_MIN_UPTIME_US INT64_C(1500000)
 
 RTC_NOINIT_ATTR uint32_t g_restart_marker;
@@ -46,7 +46,7 @@ int64_t g_cycle_next_us;
 static const uint8_t k_cycle_wake_payload[15] = {
     0, 3, 0xFF, 6, 45, 10, 4, 3, 4, 0, 3, 140, 0, 15, 1};
 
-// CMD_CSB_RX payload: 22スロット周期、6箇所、1箇所あたり160ms
+// CMD_CSB_RX payload: 22-slot interval, six positions, 160 ms at each position.
 static const uint8_t k_cycle_rx_payload[18] = {
     1, 22, 14, 0, 0, 140, 0, 1, 1, 1, 6, 16, 7, 1, 0, 0, 4, 0};
 
@@ -72,11 +72,11 @@ void connect_cycle_set(bool enabled)
     g_cycle_next_us = 0;
     if (enabled) {
         s_cycle_rounds = 0;
-        // RTCメモリは電源投入時の値が不定なので初期化する
+        // Initialize RTC memory because its value is undefined at power-on.
         if (!g_cycle_resume_after_boot) {
             g_cycle_wake_tries = 0;
         }
-        // Switch側だけでペアリング情報を削除された場合も再検出できるよう、検出可能にする
+        // Remain discoverable so pairing can be recovered even if the user deletes pairing data only on the Switch.
         esp_bt_gap_set_scan_mode(ESP_BT_CONNECTABLE,
                                  ESP_BT_GENERAL_DISCOVERABLE);
         g_stay_disconnected = false;
@@ -120,7 +120,7 @@ void connect_cycle_step(int64_t now)
         return;
     }
     if (g_wake_page_pending || g_acl_connected) {
-        // 進行中のACL切断とページ接続を中断しない
+        // Do not interrupt an in-progress ACL disconnect or paging connection.
         s_cycle_state = CYCLE_HANDOFF_WAIT;
         g_cycle_next_us = now + 6000000;
         return;
@@ -138,7 +138,7 @@ void connect_cycle_step(int64_t now)
 
     if (s_cycle_state == CYCLE_WAKE_WAIT && !g_wake_tx_active &&
         !g_direct_handoff_active && !g_acl_connected && !g_wake_page_pending) {
-        // 送信とリンク処理が完了した場合は待機期限を短縮する
+        // Shorten the wait deadline once transmission and link processing have finished.
         g_cycle_next_us = now;
     }
     if (now < g_cycle_next_us) {
@@ -151,7 +151,7 @@ void connect_cycle_step(int64_t now)
             g_cycle_next_us = CYCLE_WAKE_MIN_UPTIME_US;
             break;
         }
-        // 進行中のページがあるとCSBの有効化がstatus 0x0bで拒否される
+        // Enabling CSB fails with status 0x0b if paging is underway.
         g_reconnect_disabled = true;
         g_reconnect_paused = true;
         if (g_wake_tx_active || g_direct_handoff_active ||
@@ -208,7 +208,7 @@ void connect_cycle_step(int64_t now)
             swpro_restart_after_disconnect(CYCLE_RESTART_MARKER);
             break;
         }
-        // スリープ中のSwitchはページ接続要求を受信しないため、1回だけ送信する
+        // A sleeping Switch does not receive paging requests, so transmit only one.
         ESP_LOGW(TAG, "Connection attempt: sending one page connection request");
         g_reconnect_disabled = false;
         g_reconnect_paused = false;
@@ -218,7 +218,7 @@ void connect_cycle_step(int64_t now)
         break;
 
     case CYCLE_PAGE_WAIT:
-        // 起動後の自動再接続を防ぐため、ページ接続要求を停止してから再起動する
+        // Stop paging requests before restarting to prevent automatic reconnection after boot.
         ESP_LOGI(TAG, "Connection attempt: stopping the page request, restarting, and moving to the next cycle");
         g_reconnect_disabled = true;
         g_reconnect_paused = true;

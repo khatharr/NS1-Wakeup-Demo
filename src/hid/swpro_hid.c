@@ -226,10 +226,10 @@ static void fill_pairing_reply(uint8_t report[REPORT_SIZE], uint8_t phase)
 static void fill_device_info(uint8_t report[REPORT_SIZE])
 {
     const uint8_t *local = esp_bt_dev_get_address();
-    report[14] = 0x03; // 本体ファームウェアバージョンの上位バイト
-    report[15] = 0x48; // 本体ファームウェアバージョンの下位バイト
-    report[16] = 0x03; // コントローラー種別の上位バイト(Pro Controller)
-    report[17] = 0x02; // コントローラー種別の下位バイト
+    report[14] = 0x03; // High byte of controller firmware version
+    report[15] = 0x48; // Low byte of controller firmware version
+    report[16] = 0x03; // High byte of controller type (Pro Controller)
+    report[17] = 0x02; // Low byte of controller type
     if (local != NULL) {
         memcpy(&report[18], local, ESP_BD_ADDR_LEN);
     }
@@ -237,7 +237,7 @@ static void fill_device_info(uint8_t report[REPORT_SIZE])
     report[25] = 0x02;
 }
 
-// 0x21応答は通常入力の8ms周期を待たず、受信直後に送信する。
+// Send 0x21 replies immediately after reception, without waiting for the normal 8 ms input interval.
 static void handle_subcommand(uint8_t command, const uint8_t *args, uint16_t args_len)
 {
     swpro_input_t input;
@@ -301,10 +301,10 @@ static void handle_subcommand(uint8_t command, const uint8_t *args, uint16_t arg
     case SUBCMD_SET_HCI_STATE:
         if (args_len >= 1) {
             ESP_LOGI(TAG, "Received HCI state: 0x%02x", args[0]);
-            // 状態0はSwitchがスリープへ移行するときに送信する切断指示である。
-            // この時点で入力レポートの送信を停止する。
-            // リンク切断後の8ms以内に入力レポートを送信すると、bluedroidのHID層がL2CAP接続を再開し、スリープ移行中のSwitchに対するページング処理を開始する。
-            // HID接続フラグは切断コールバックで解除されるため、s_host_stoppedを先に設定する。
+            // State 0 is the disconnect command sent when the Switch enters sleep.
+            // Stop input reports at this point.
+            // Sending an input report within 8 ms after link disconnection makes Bluedroid HID reopen L2CAP and start paging the Switch during its sleep transition.
+            // Since the HID connection flag is cleared only by the disconnect callback, set s_host_stopped first.
             if (args[0] == 0) {
                 s_host_stopped = true;
             }

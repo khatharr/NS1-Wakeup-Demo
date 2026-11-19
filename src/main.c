@@ -66,7 +66,7 @@ static bool wakeup_code_self_check(void)
         }
     }
 
-    // フェーズ3へ格納するローカルBD_ADDRは、下位バイトを先頭に並べる。
+    // The local BD_ADDR stored in Phase 3 is arranged least-significant byte first.
     static const uint8_t local[6] = {0x01, 0x23, 0x45, 0x67, 0x89, 0xAB};
     static const uint8_t local_lsb_first[6] = {0xAB, 0x89, 0x67, 0x45, 0x23, 0x01};
     uint8_t actual_lsb_first[6];
@@ -74,7 +74,7 @@ static bool wakeup_code_self_check(void)
     if (memcmp(actual_lsb_first, local_lsb_first, 6) != 0) {
         return false;
     }
-    // ペイロードヘッダーの組み立てで、長さ、FLOW、LLIDの配置を確認する。
+    // Verify the placement of length, FLOW, and LLID when constructing the payload header.
     if (switch1_txphdr(2, 0, 2) != 0x0012 ||
         switch1_txphdr(12, 0, 2) != 0x0062 ||
         switch1_txphdr(12, 0, 3) != 0x0063 ||
@@ -103,18 +103,18 @@ static esp_err_t bluetooth_init(bool ns2_wake_only)
         return ESP_OK;
     }
 
-    // リンクの監視タイムアウトを2秒にする。
-    // 既定値の20秒では、Switchの電源断やスリープで応答が途絶えたときに、リンクの消失が確定するまで20秒かかる。
-    // link 0が使用中のままになり、次のウェイクアップ送信とページ接続要求を開始できない。
-    // 1秒まで短縮すると、一時的な電波干渉でもリンクが切断される。
-    // 単位は0.625msのスロットである。
+    // Set the link supervision timeout to 2 seconds.
+    // With the default 20-second timeout, a Switch shutdown or sleep that stops responses takes 20 seconds to be recognized as a lost link.
+    // Link 0 remains occupied, preventing the next wake-up transmission and paging request.
+    // Reducing the timeout to 1 second would disconnect the link even during temporary radio interference.
+    // The unit is a 0.625 ms slot.
     BTM_SetDefaultLinkSuperTout(LINK_SUPERVISION_TIMEOUT_SLOTS);
 
-    // Switchがウェイクアップ信号を受信できる距離を確保するため、BR/EDRの送信出力をESP_PWR_LVL_P9へ設定する。
-    // 制御構造の送信出力フィールドはrwip_rf+44から設定されるため、この呼び出しで制御構造へ反映される。
+    // Set BR/EDR transmit power to ESP_PWR_LVL_P9 to provide enough range for the Switch to receive the wake-up signal.
+    // The transmit-power field in the control structure is populated from rwip_rf+44, so this call also updates that structure.
     esp_bredr_tx_power_set(ESP_PWR_LVL_P9, ESP_PWR_LVL_P9);
 
-    // HOJAと同じ順序で、CoDとSSPを先に設定してからHIDデバイスを登録する。
+    // Following HOJA's order, configure CoD and SSP before registering the HID device.
     esp_bt_cod_t cod = {
         .minor = 0x02,   // Gamepad
         .major = 0x05,   // Peripheral
@@ -165,12 +165,12 @@ void app_main(void)
         g_restart_marker = 0;
         g_cycle_resume_after_boot = true;
     } else {
-        // RTCメモリは電源投入時の値が不定である。g_restart_markerに設定された既知のマーカー以外は無効として扱う。
+        // RTC memory has an undefined value at power-on. Treat any value other than the known marker in g_restart_marker as invalid.
         g_restart_marker = 0;
         g_cycle_wake_tries = 0;
     }
-    // 通常起動では保存済みSwitchへのページ接続を開始する。
-    // ウェイクアップ処理を継続する再起動では、CSB送信と競合しないようページ接続を禁止する。
+    // On a normal boot, start paging the saved Switch.
+    // On a restart that continues the wake-up process, disable paging to avoid conflicting with CSB transmission.
     g_reconnect_disabled = g_page_right_after_boot || g_cycle_resume_after_boot;
 
     swpro_pairing_init();
@@ -195,10 +195,10 @@ void app_main(void)
         ns2_wake_advertise_and_restart();
     }
 
-    // CSB受信の監視では記録用の配列とログ整形を使用する。
+    // CSB reception monitoring uses recording arrays and log formatting.
     xTaskCreate(swpro_uart_task, "uart_input", 4608, NULL, 5, NULL);
     xTaskCreatePinnedToCore(swpro_protocol_task, "switch_reports", 4096, NULL, 5, NULL, 0);
-    // Bluetooth ControllerはCore 1で動作する。
-    // バースト検出のポーリングはCore 0へ固定し、Controllerの処理と同じcoreで競合しないようにする。
+    // The Bluetooth controller runs on Core 1.
+    // Pin burst-detection polling to Core 0 so it does not compete with controller processing on the same core.
     xTaskCreatePinnedToCore(wake_tx_task, "wake_tx", 2560, NULL, 6, NULL, 0);
 }

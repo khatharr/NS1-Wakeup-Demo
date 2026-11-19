@@ -15,7 +15,7 @@ tmpobjs/
 tmpobjs2/
 input_passthrough/bin/NS Input Passthrough.ini
 
-# 調査の記録。手元には残すが、公開するリポジトリへは入れない。
+# Investigation notes. Keep them locally, but do not include them in the public repository.
 notes/
 run-logs/
 CLAUDE.md

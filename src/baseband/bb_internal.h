@@ -1,4 +1,4 @@
-// コントローラーROMと共有メモリへ直接アクセスする内部APIと共有状態を定義し、アプリケーション側はbaseband.hを介して呼び出す
+// Define internal APIs and shared state for direct access to controller ROM and shared memory; applications call through baseband.h.
 #ifndef BB_INTERNAL_H
 #define BB_INTERNAL_H
 
@@ -22,7 +22,7 @@ void bb_csb_rx_on_event(BT_HDR *p_msg);
 
 extern volatile bool g_command_pending;
 extern volatile bool g_command_timed_out;
-// コマンド失敗を許容してエラーを抑止する場合にtrueへ設定する。ログ出力が監視処理を遅延させる経路で使用する
+// Set true to tolerate command failure and suppress errors on paths where logging would delay monitoring.
 extern volatile bool g_suppress_command_error_log;
 
 extern acl_handoff_request_t g_acl_handoff;
@@ -31,9 +31,9 @@ extern bool acl_link_context_clear(uint8_t link);
 extern phase2_capture_t g_phase2_capture;
 
 /*
- * - ACLリンク環境をROMの通常ACL処理へ登録した後、ESP32からの不要なLMP送信を抑制する2つのフックを登録する。
- * - ACL followup taskの終了時に両フックを解除する。
- * - opcode 0に対するLMP_not_acceptedの送信と、ESP32側から開始するパケット種別の交換を抑制する。
+ * - After registering the ACL link environment with normal ROM ACL processing, install two hooks to suppress unnecessary ESP32-originated LMP transmissions.
+ * - Remove both hooks when the ACL follow-up task ends.
+ * - Suppress LMP_not_accepted for opcode 0 and ESP32-initiated packet-type exchanges.
  */
 void lmp_not_accepted_hook_install(void);
 void lmp_not_accepted_hook_remove(void);

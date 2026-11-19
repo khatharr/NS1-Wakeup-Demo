@@ -326,7 +326,7 @@ void ns2_wake_advertise_and_restart(void)
     } else {
         ESP_LOGI(TAG, "NS2 wake advertisement finished");
     }
-    // 通常のPublic BD_ADDRへ復帰し、保存済みSwitchへのページ接続を再開する。
+    // Restore the normal public BD_ADDR and resume paging the saved Switch.
     g_restart_marker = 0;
 
 restart:

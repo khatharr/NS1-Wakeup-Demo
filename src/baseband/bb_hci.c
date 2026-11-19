@@ -1,5 +1,5 @@
-// このbasebandモジュールはbluedroidを介さずにHCIコマンドを送信するため、送信処理と完了待ちをここにまとめる。
-// bluedroidが処理しないCSB受信イベントを転送し、HCI Create Connectionへ渡すページ接続のClock_Offsetをリンカの--wrapで差し替える。
+// This baseband module sends HCI commands without Bluedroid; centralize sending and completion waits here.
+// Forward CSB receive events that Bluedroid does not process, and use the linker's --wrap to override the Clock_Offset passed to HCI Create Connection for paging.
 
 #include "baseband.h"
 
@@ -24,7 +24,7 @@
 
 static const char *TAG = "wake_hci";
 
-// HCIコマンドの失敗を許容する試行で、エラーログ出力が監視処理を遅延させる場合だけtrueに設定
+// Set true only when command failure is allowed and error logging would delay monitoring.
 volatile bool g_suppress_command_error_log;
 
 volatile bool g_command_pending;
@@ -32,11 +32,11 @@ volatile bool g_command_timed_out;
 
 volatile uint8_t g_command_status;
 static volatile uint16_t s_command_opcode;
-// Command Completeイベントのp[5]以降を最大8バイト保存
-// HCI_SET_CLBが採用した送信間隔の確認に使用
+// Save up to eight bytes from p[5] onward in the Command Complete event.
+// Used to check the transmit interval accepted by HCI_SET_CLB.
 uint8_t g_command_return[8];
 volatile uint8_t g_command_return_length;
-// bluedroidの接続ステートマシンは維持し、HCI Create Connectionコマンドを送信する直前に設定するClock_Offsetだけを差し替える
+// Keep Bluedroid's connection state machine, overriding only Clock_Offset immediately before sending HCI Create Connection.
 static uint8_t s_hci_page_target[6];
 static volatile uint16_t s_hci_page_clock_offset;
 static volatile bool s_hci_page_armed;
@@ -122,8 +122,8 @@ static void command_complete(BT_HDR *response, void *context)
     if (response->len >= 6 && p[0] == HCI_COMMAND_COMPLETE_EVT &&
         (uint16_t)(p[3] | ((uint16_t)p[4] << 8)) == s_command_opcode) {
         g_command_status = p[5];
-        // HCI_SET_CLBは採用したLT_ADDRと送信間隔をCommand Completeイベントで返す。
-        // HCI_SET_CLBに指定した送信間隔とControllerが返した送信間隔を比較するため、p[5]以降のデータを保存する。
+        // HCI_SET_CLB returns the selected LT_ADDR and transmit interval in Command Complete.
+        // Save bytes starting at p[5] to compare the requested HCI_SET_CLB interval with the controller's accepted interval.
         uint16_t extra = (uint16_t)(response->len - 5);
         if (extra > sizeof(g_command_return)) {
             extra = (uint16_t)sizeof(g_command_return);
@@ -142,8 +142,8 @@ static void command_status(uint8_t status, BT_HDR *command, void *context)
     (void)context;
     g_command_status = status;
     g_command_pending = false;
-    // hci_layerはcallbackから戻った後もmetadataを参照する。
-    // callbackをNULLへ変更し、hci_layer自身にcommandを解放させる。
+    // hci_layer still references metadata after the callback returns.
+    // Set the callback to NULL and let hci_layer release the command itself.
     hci_cmd_metadata_t *const metadata = HCI_GET_CMD_METAMSG(command);
     metadata->command_status_cb = NULL;
 }
@@ -178,12 +178,12 @@ esp_err_t send_command_wait(uint16_t opcode, const uint8_t *params,
     hci_layer_get_interface()->transmit_command(
         p, command_complete, command_status, NULL);
 
-    // ESP-IDF hci_layerのCOMMAND_PENDING_TIMEOUTと同じ8秒を上限にする
+    // Use the same eight-second limit as COMMAND_PENDING_TIMEOUT in ESP-IDF hci_layer.
     for (unsigned i = 0; i < 8000 && g_command_pending; ++i) {
         vTaskDelay(pdMS_TO_TICKS(1));
     }
     if (g_command_pending) {
-        // 遅延callbackが到着しても、HCIコマンドがController内部へ反映されたかは判定できない
+        // Even if a delayed callback arrives, it is impossible to determine whether the controller applied the HCI command.
         g_command_timed_out = true;
         return ESP_ERR_TIMEOUT;
     }

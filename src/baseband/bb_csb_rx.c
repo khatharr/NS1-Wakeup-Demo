@@ -1,7 +1,7 @@
 /*
- * 受信側のcontrol structureにはウェイクアップ用のパリティを設定する。
- * 受信成立の判定は受信descriptorを直接読み出して行う。
- * HCIイベントを待つと、応答受信からフェーズ3の送信までの時間に処理が間に合わない。
+ * Configure wake-up parity in the receiver control structure.
+ * Determine successful reception by directly reading receive descriptors.
+ * Waiting for an HCI event would be too slow between reception of the response and Phase 3 transmission.
  */
 
 #include "baseband.h"
@@ -28,28 +28,28 @@
 static const char *TAG = "wake_csb";
 
  /*
-  * CSB受信のcontrol structure。
-  * 対応するROM関数はr_ld_csb_rx_start(0x4003972c)。
-  * 送信側(0x3ffb22b6)と同じ配置である。
+  * CSB receiver control structure.
+  * Corresponding ROM routine: r_ld_csb_rx_start (0x4003972c).
+  * Has the same layout as the transmitter (0x3ffb22b6).
  * - +0x0A: BD_ADDR
  * - +0x10: BCH parity
  */
 #define CSB_RX_CS_ADDR UINT32_C(0x3ffb231c)
 /*
- * HCIのSet_Connectionless_Slave_Broadcast_Receive。
- * bluedroidのhcidefs.hには定義がないが、ESP32のControllerは実装している。
- * ROMのlb_hci_command_handler_tabにopcode 0x0442のハンドラが登録されている。
+ * HCI Set_Connectionless_Slave_Broadcast_Receive.
+ * Not defined in Bluedroid's hcidefs.h, but implemented by the ESP32 controller.
+ * ROM lb_hci_command_handler_tab registers a handler for opcode 0x0442.
  */
 #define HCI_SET_CLB_RECEIVE (0x0042 | HCI_GRP_LINK_CONTROL_CMDS)
 /*
- * HCIのSet_Event_Mask_Page_2。
- * CSB受信イベント(0x51)は既定では無効になっている。
- * ROMのr_hci_evt_mask_set(0x400189e4)はページ2のマスクをhci_env+8へ8バイトコピーする。
- * イベントマスクページ2の既存ビット配置を変更しない。
- * bluedroidはこのコマンドを発行しないため、bit16~18をここで有効にする。
- * - bit16: 同期列の受信
- * - bit17: CSB受信
- * - bit18: CSB受信のタイムアウト
+ * HCI Set_Event_Mask_Page_2.
+ * CSB receive events (0x51) are disabled by default.
+ * ROM r_hci_evt_mask_set (0x400189e4) copies the eight-byte page-2 mask to hci_env+8.
+ * Do not alter the existing bit assignments of event mask page 2.
+ * Bluedroid never issues this command, so enable bits 16-18 here.
+ * - bit 16: synchronization-train reception
+ * - bit 17: CSB reception
+ * - bit 18: CSB reception timeout
  */
 #define HCI_SET_EVT_MASK_PAGE_2 (0x0063 | HCI_GRP_HOST_CONT_BASEBAND_CMDS)
 #define HCI_EVT_MASK_PAGE_2_CSB UINT8_C(0x07)
@@ -59,8 +59,8 @@ static uint8_t s_csb_rx_target[6];
 static uint64_t s_csb_rx_bch;
 static uint8_t s_csb_rx_channel;
 static volatile bool s_csb_rx_active;
-// 受信開始直後のcontrol structure。
-// 応答の検出を遅らせないよう、ログ出力は後で行う。
+// Control structure immediately after reception starts.
+// Defer logging so that response detection is not delayed.
 #define CSB_RX_START_CS_WORDS 24
 static uint16_t s_csb_rx_start_cs[CSB_RX_START_CS_WORDS];
 static bool s_csb_rx_start_cs_valid;
@@ -69,8 +69,8 @@ static uint16_t s_csb_rx_ltaddr_readback;
 static bool s_csb_rx_ltaddr_valid;
 
 /*
- * 受信descriptorのステータスだけでは連続受信の件数を判定できない。
- * HCIイベント0x51は受信1件ごとに発生するため、件数はここで数える。
+ * Descriptor status alone cannot determine the number of consecutive receptions.
+ * HCI event 0x51 occurs once per reception; count them here.
  */
 static volatile uint32_t s_csb_rx_event_count;
 
@@ -100,17 +100,17 @@ static void csb_rx_write_bch(uint64_t bch34)
     base[0] = (uint16_t)(bch34 & 0xFFFF);
     base[1] = (uint16_t)((bch34 >> 16) & 0xFFFF);
     /*
-     * 3番目のワードは送信と受信で書き込み形式が異なる。
-     * - 送信(r_ld_csb_tx_en): parityの上位2ビットだけを書き込む。
-     * - 受信(r_ld_csb_rx_start): 0xFF40も同時に書き込む。
-     * 上位10ビットの用途は特定できていないが、ROMが受信時だけ書き込む上位10ビットを保持する。
-     * 送信側と同じ形式で書く実装にはしない。
+     * The third word uses different write formats for transmission and reception.
+     * - Transmit (r_ld_csb_tx_en): write only the upper two bits of parity.
+     * - Receive (r_ld_csb_rx_start): also write 0xFF40.
+     * The meaning of the upper ten bits is unknown; preserve those ROM writes only when receiving.
+     * Do not use the transmitter's write format here.
      */
     base[2] = (uint16_t)(CS_BCH_RX_FLAGS | ((bch34 >> 32) & 0x3));
 }
 
 /*
- * HCIパラメータのフィールド:
+ * HCI parameter fields:
  * - Enable(1)
  * - BD_ADDR(6)
  * - LT_ADDR(1)
@@ -141,8 +141,8 @@ static void csb_rx_build_params(uint8_t params[CSB_RX_PARAM_SIZE],
     UINT8_TO_STREAM(p, 250);  // Remote_Timing_Accuracy(ppm)
     UINT8_TO_STREAM(p, 0);    // Skip
     /*
-     * LLID 3用の固定バッファは20バイトであるため、17バイトの応答を収められるDM1だけを許可する。
-     * より長いpacket typeを許可すると隣接する固定バッファを上書きする。
+     * The fixed buffer for LLID 3 is only 20 bytes, so permit only DM1, which holds the 17-byte response.
+     * Allowing longer packet types would overwrite adjacent fixed buffers.
      */
     UINT16_TO_STREAM(p, CSB_EDR_EXCLUSION_MASK | HCI_PKT_TYPES_MASK_DM1);
     for (int i = 0; i < 9; ++i) {
@@ -156,16 +156,16 @@ esp_err_t switch1_csb_rx_start(const uint8_t bd_addr[6], uint64_t bch34,
                                uint32_t next_clock, uint8_t channel)
 {
     /*
-     * このAPIで指定できる周期は偶数に限られる。
-     * この経路では1つの受信位置に6通りの位相を割り当てない。
+     * This API accepts only even interval values.
+     * This path does not assign six different phases to one receive position.
      */
     if (bd_addr == NULL || interval < 2 || (interval & 1) != 0) {
         return ESP_ERR_INVALID_ARG;
     }
     if (s_csb_rx_active) {
         /*
-         * 前回のEnable=0停止要求が拒否されると受信状態が継続し、その後の開始が再起動まで失敗し続ける。
-         * 停止を再試行し、停止が成立しなくてもEnable=1で開始時刻を再設定する。
+         * If the previous Enable=0 stop is rejected, reception stays active and subsequent starts fail until reboot.
+         * Retry stopping and, even if stopping fails, use Enable=1 to reset the start time.
          */
         const esp_err_t stop_err =
             switch1_csb_rx_stop(s_csb_rx_target, interval);
@@ -173,9 +173,9 @@ esp_err_t switch1_csb_rx_start(const uint8_t bd_addr[6], uint64_t bch34,
                  esp_err_to_name(stop_err));
     }
     /*
-     * 受信イベントを有効にしてから受信を開始する。
-     * 受信イベントが無効な状態ではControllerがイベントを通知しない。
-     * descriptorの直接読み出し以外では受信を確認できない。
+     * Enable receive events before starting reception.
+     * Without receive events enabled, the controller sends no event notifications.
+     * Reception could then be detected only by reading descriptors directly.
      */
     {
         uint8_t mask[8] = {0};
@@ -198,9 +198,9 @@ esp_err_t switch1_csb_rx_start(const uint8_t bd_addr[6], uint64_t bch34,
     s_csb_rx_active = true;
     switch1_csb_rx_reapply();
     /*
-     * ここではログを出力しない。
-     * switch1_csb_rx_startから戻った直後にSwitchの応答を受信する可能性がある。
-     * UART 4行分(約20ms)の出力で検出が遅れると、フェーズ3の送信タイミングを逃すため、control structureの24ワードだけ保存する。
+     * Do not log here.
+     * The Switch may respond immediately after switch1_csb_rx_start returns.
+     * Printing four UART lines (about 20 ms) could delay detection and miss Phase 3 timing, so store only the 24 control-structure words.
      */
     {
         const volatile uint16_t *const cs =
@@ -214,28 +214,28 @@ esp_err_t switch1_csb_rx_start(const uint8_t bd_addr[6], uint64_t bch34,
 }
 
 /*
- * 受信側control structureへ設定を再適用する。
- * ROMがイベントごとに設定を再構成するため、送信側と同様に繰り返し呼び出す必要がある。
- * 特に+0x16ではROMがbit15(ホッピング有効)を1に設定するため、再適用しないと受信周波数が79チャンネルを巡回する。
+ * Reapply the settings to the receiver control structure.
+ * ROM rebuilds settings for each event, so call repeatedly as on the transmitter side.
+ * In particular, ROM sets bit 15 (hopping enabled) at +0x16; without reapplying, the receive frequency cycles through 79 channels.
  */
 static void switch1_csb_rx_reapply(void)
 {
     if (!s_csb_rx_active) {
         return;
     }
-    /* ROMはBD_ADDRから通常のparityを計算して書き込むため、ウェイクアップ用BCH parityへ置き換える。 */
+    /* ROM calculates and writes normal parity from BD_ADDR; replace it with wake-up BCH parity. */
     csb_rx_write_bdaddr(s_csb_rx_target);
     csb_rx_write_bch(s_csb_rx_bch);
     /*
-     * Switchの応答ヘッダーのLT_ADDRは0だが、HCIコマンドは1~7だけを受け付ける。
-     * control structureへ0を直接設定する。
-     * LT_ADDRは+0x08のbit10:8にある。
-     * +0x00の下位5ビットはフレームフォーマットなので変更しない。
+     * The Switch response header uses LT_ADDR 0, while the HCI command accepts only values 1-7.
+     * Write 0 directly into the control structure.
+     * LT_ADDR occupies bits 10:8 at +0x08.
+     * Do not change the lower five bits at +0x00, which represent the frame format.
      *
-     * control structure +0x08のbit12を立てて白色化を無効にする。
-     * Switchの応答は白色化なしで送信されるため、初期値0を設定する。
-     * 受信側は既定でピコネットクロックから白色化初期値を生成する。
-     * 変更しないとヘッダーの復号結果が受信ごとに変化する。
+     * Set bit 12 of receiver control structure +0x08 to disable whitening.
+     * Because the Switch transmits its response without whitening, set the initial whitening value to 0.
+     * By default, the receiver derives the whitening seed from the piconet clock.
+     * Without this change, the decoded header varies on each reception.
      */
     {
         volatile uint16_t *const link =
@@ -244,8 +244,8 @@ static void switch1_csb_rx_reapply(void)
                            CS_LINKCNTL_WHITENING_DSB);
     }
     /*
-     * 送信側と同じく周波数ホッピングを無効にし、Switchが送信する2402MHzへ固定する。
-     * 設定しない場合、受信周波数だけがホッピングする。
+     * As for transmission, disable frequency hopping and lock to the Switch's 2402 MHz channel.
+     * Otherwise only the receive frequency will hop.
      */
     {
         volatile uint16_t *const hopcntl =
@@ -259,15 +259,15 @@ static void switch1_csb_rx_reapply(void)
 }
 
 /*
- * control structureには、ハードウェアが測定した受信時刻が格納される。
- * - +0x52, +0x54: クロック
- * - +0x56: スロット内位置(10ビット)
- * ld_acl_rx_sync(0x4002fbec)は+0x56から68usを減算して0~624へ正規化する。
+ * The control structure contains the hardware-measured receive time.
+ * - +0x52, +0x54: clock
+ * - +0x56: within-slot position (10 bits)
+ * ld_acl_rx_sync (0x4002fbec) subtracts 68 us from +0x56 and normalizes to 0-624.
  */
 #define CS_RXCLK_LO_OFFSET UINT32_C(0x52)
 #define CS_RXCLK_HI_OFFSET UINT32_C(0x54)
 #define CS_RXBITOFF_OFFSET UINT32_C(0x56)
-// ld_acl_rx_sync(0x4002fc8c)が受信スロット位置から68usを減算する補正。
+// Correction in ld_acl_rx_sync (0x4002fc8c) that subtracts 68 us from the receive-slot position.
 #define CS_RXBITOFF_CORRECTION 68
 
 bool switch1_csb_rx_read_sync(uint32_t *out_clk, uint16_t *out_bitoff,
@@ -309,24 +309,24 @@ bool switch1_csb_rx_read_sync(uint32_t *out_clk, uint16_t *out_bitoff,
 void switch1_csb_rx_set_format(uint8_t format)
 {
 /*
- * control structure +0x00のbit0-4はフレームフォーマットである。
+ * Bits 0-4 of control structure +0x00 specify the frame format.
  * - 2, 3: ACL
- * - 4: ページ
- * - 5: ページスキャン
- * - 24: CSB送信と同期トレイン
- * - 25: CSB受信と同期スキャン
+ * - 4: page
+ * - 5: page scan
+ * - 24: CSB transmission and synchronization train
+ * - 25: CSB reception and synchronization scan
  *
- * CSB受信ではハードウェアが受信ペイロードを保存しない。
- * ACLの形式へ変更すると、ペイロードを保存する処理経路に入る。
+ * During CSB reception the hardware does not store received payload data.
+ * Switching to an ACL format enters the code path that saves payloads.
  */
     volatile uint16_t *const cs = (volatile uint16_t *)CSB_RX_CS_ADDR;
     *cs = (uint16_t)((*cs & ~UINT16_C(0x001F)) | (format & 0x1F));
 }
 
 /*
- * 停止処理の完了を待つ上限時間。
- * 動作中のCSB受信env構造体は、スケジュール要素の処理が終わるまで解放されない。
- * 受信周期は22スロット(13.75ms)であるため、1周期を超える時間を設定する。
+ * Maximum wait for the stop operation to complete.
+ * An active CSB receive env structure is not freed until its schedule-element processing finishes.
+ * The receive interval is 22 slots (13.75 ms), so wait longer than one cycle.
  */
 #define CSB_RX_STOP_WAIT_US 20000
 
@@ -336,9 +336,9 @@ esp_err_t switch1_csb_rx_restart(uint16_t interval, uint32_t next_clock)
         return ESP_ERR_INVALID_STATE;
     }
     /*
-     * 先に停止を送信してld_csb_rx_env(0x3ffb8278)を解放する。
-     * このポインタがNULLでない場合、r_ld_csb_rx_startは12(Command Disallowed)を返す。
-     * 停止が12(Command Disallowed)で拒否されるのはenvポインタがすでにNULLの場合であるため、その停止応答を無視して開始処理へ進む。
+     * Send stop first to release ld_csb_rx_env (0x3ffb8278).
+     * If this pointer is non-NULL, r_ld_csb_rx_start returns 12 (Command Disallowed).
+     * If stop is rejected with 12 (Command Disallowed), the env pointer is already NULL; ignore that stop response and continue starting.
      */
     uint8_t params[CSB_RX_PARAM_SIZE];
     csb_rx_build_params(params, 0, s_csb_rx_target, interval < 2 ? 2 : interval,
@@ -347,11 +347,11 @@ esp_err_t switch1_csb_rx_restart(uint16_t interval, uint32_t next_clock)
     (void)send_command_wait(HCI_SET_CLB_RECEIVE, params, CSB_RX_PARAM_SIZE);
     g_suppress_command_error_log = false;
     /*
-     * 停止処理は直ちに完了するとは限らない。
-     * r_ld_csb_rx_stop(0x40039bb8)はenv+0x3Eが1(動作中)の場合、0x40039bf2で2を書き込み、処理を終了する。
-     * envの解放はスケジュール要素の処理後に行われる。
-     * 解放前に開始を送信すると0x40039738の判定で12(Command Disallowed)になるため、ポインタがNULLになるまで待つ。
-     * 上限時間内にNULLにならない場合は、この回の再開を中止する。
+     * Stopping does not necessarily finish immediately.
+     * When env+0x3E is 1 (running), r_ld_csb_rx_stop (0x40039bb8) writes 2 at 0x40039bf2 and returns.
+     * The env is freed after processing its schedule element.
+     * Starting before it is freed fails with 12 (Command Disallowed) at 0x40039738; wait until the pointer becomes NULL.
+     * Abort this restart attempt if the pointer does not become NULL before the deadline.
      */
     {
         const void *volatile *const env =
@@ -370,8 +370,8 @@ esp_err_t switch1_csb_rx_restart(uint16_t interval, uint32_t next_clock)
         send_command_wait(HCI_SET_CLB_RECEIVE, params, CSB_RX_PARAM_SIZE);
     if (err != ESP_OK) {
         /*
-         * 停止は成立しているため、受信は動作していない。
-         * 次の開始処理を誤って拒否しないよう、s_csb_rx_activeをfalseに設定する。
+         * Stopping succeeded, so reception is no longer running.
+         * Set s_csb_rx_active to false so the next start is not incorrectly rejected.
          */
         s_csb_rx_active = false;
         return err;
@@ -396,46 +396,46 @@ esp_err_t switch1_csb_rx_stop(const uint8_t bd_addr[6], uint16_t interval)
 }
 
 /*
- * 受信descriptorの配置。
- * ld_csb_rx_frm_cbk(0x400393a4)は、ld_env[0x1AA]の下位2ビットを使用して
- * 4個の受信descriptorから1個を選択する。
- * 先頭ワードのbit15で受信完了を判定する。
- * 先頭ワードの下位15ビットは次のdescriptorの共有メモリ位置である。
- * 4個のdescriptorを循環して使用する。
+ * Receive descriptor layout.
+ * ld_csb_rx_frm_cbk (0x400393a4) uses the lowest two bits of ld_env[0x1AA]
+ * to select one of four receive descriptors.
+ * Bit 15 of the first word indicates completion.
+ * The low 15 bits of the first word address the next descriptor in shared memory.
+ * The four descriptors are used in a ring.
  */
 #define CSB_RX_DESC_ADDR UINT32_C(0x3ffb2382)
 #define CSB_RX_DESC_WORDS 7
 #define CSB_RX_DESC_COUNT 4
 #define CSB_RX_DESC_DONE UINT16_C(0x8000)
-// 同期に失敗した場合、2番目のワードの最下位ビットが1に設定される
+// On synchronization failure, the least-significant bit of the second word is set.
 #define CSB_RX_STAT_SYNC_ERR UINT16_C(0x0001)
 /*
- * ld_csb_rx_frm_cbk(0x400393a4)の0x400394fcが2番目のワードに適用するパケット有効条件。
- * - bit0, bit1, bit2, bit6: いずれかが1の場合はペイロードを保存しない。
- * - bit0: 同期失敗
- * - bit6: LT_ADDR不一致
+ * Packet validity conditions applied to the second word at 0x400394fc in ld_csb_rx_frm_cbk (0x400393a4).
+ * - Bits 0, 1, 2, and 6: if any is set, do not save the payload.
+ * - bit 0: synchronization failure
+ * - bit 6: LT_ADDR mismatch
  */
 #define CSB_RX_STAT_FAIL_MASK UINT16_C(0x0047)
 /*
- * - 4番目のワード: ペイロードヘッダー。
- *   長さはdescriptor[CSB_RX_DESC_PLHEADER]のビット3~15から得る。
- * - 6番目のワード: ペイロードの共有メモリ位置。
- *   ld_csb_rx_frm_cbkの0x40039509~0x40039527が読み出すフィールドである。
+ * - Fourth word: payload header.
+ *   Length is taken from bits 3-15 of descriptor[CSB_RX_DESC_PLHEADER].
+ * - Sixth word: shared-memory location of the payload.
+ *   Read by ld_csb_rx_frm_cbk at 0x40039509-0x40039527.
  */
 #define CSB_RX_DESC_PLHEADER 3
 #define CSB_RX_DESC_PLBUF 5
 /*
- * - 7番目のワードは別のバッファで、20バイト間隔に配置される。
- * - 6番目のワードが指すバッファは1028バイト間隔で配置され、ACLデータ用である。
- * - LLIDが3のLMPパケットは、ハードウェアが7番目のバッファへ書き込むと考えられる。
- * - ld_csb_rx_frm_cbkは6番目のワードだけを読むため、ROMから渡されるデータは0になる。
+ * - The seventh word refers to a different buffer, laid out in 20-byte increments.
+ * - The buffer pointed to by the sixth word uses 1028-byte increments and holds ACL data.
+ * - Hardware is believed to write LLID 3 LMP packets to the seventh-word buffer.
+ * - ld_csb_rx_frm_cbk reads only the sixth word, so data passed on from ROM is zero.
  */
 #define CSB_RX_DESC_LMBUF 6
 #define CSB_RX_HIT_MAX 4
 #define CSB_RX_HIT_BYTES 32
 /*
- * ヘッダーの復元が終わった時点でステータスが書き込まれるため、直後に読み出すとペイロードの受信が完了していない。
- * DM1の17バイトは2/3誤り訂正符号を含めて約300usを要するため、遅延後に再度読み出す。
+ * Status is written as soon as header reconstruction completes; an immediate read can occur before the payload has finished arriving.
+ * A 17-byte DM1 takes about 300 us including 2/3 FEC, so read again after a delay.
  */
 #define CSB_RX_LATE_US 700
 
@@ -494,16 +494,16 @@ static void csb_rx_log_hit(const struct csb_rx_hit *hit, unsigned index)
 }
 
 /*
- * ステータスワードだけを比較すると、同じステータスワードを持つ連続受信で2件目以降を検出できない。
- * descriptor[CSB_RX_DESC_LEVEL]は受信ごとに変化するため、ステータスワードと組み合わせて変化を判定する。
+ * Comparing only status words misses subsequent consecutive receptions with the same status.
+ * descriptor[CSB_RX_DESC_LEVEL] changes on each reception, so combine it with status to detect changes.
  */
 static uint16_t s_csb_rx_poll_last[CSB_RX_DESC_COUNT];
 static uint16_t s_csb_rx_poll_last_level[CSB_RX_DESC_COUNT];
 #define CSB_RX_DESC_LEVEL 4
 
 /*
- * 監視中に現れたステータスの種類と回数を収集する。
- * CSB_RX_STAT_SYNC_ERRが1の受信とCSB_RX_STAT_FAIL_MASKに該当する受信を、受信0件の場合に切り分けるために使用する。
+ * Collect the types and counts of statuses observed while monitoring.
+ * Use this to distinguish CSB_RX_STAT_SYNC_ERR receptions from CSB_RX_STAT_FAIL_MASK failures when the accepted count is zero.
  */
 #define CSB_RX_POLL_KINDS 8
 static uint16_t s_csb_rx_poll_seen[CSB_RX_POLL_KINDS];
@@ -619,34 +619,34 @@ uint32_t switch1_csb_rx_watch(uint32_t duration_ms)
         was_done[d] = (base[d * CSB_RX_DESC_WORDS] & CSB_RX_DESC_DONE) != 0;
     }
     /*
-     * ステータスを変更せず記録する。
-     * 完了ビットが1になるまで待ってから読み出すと、ROMの割り込み処理が先にステータスワードを処理するため取得できない。
+     * Record the status without modifying it.
+     * Waiting until the completion bit is set means ROM's interrupt handler processes the status word first, making it unavailable here.
      */
     uint16_t seen[8];
     uint16_t seen_count[8];
     uint8_t kinds = 0;
     uint32_t windows = 0;
     /*
-     * statが0ではなくCSB_RX_STAT_FAIL_MASKに該当しない受信descriptorを保存する。
-     * descriptorごとの変化を検出するため、同じステータスワードの受信が続いても2件目以降を取得できる。
-     * 監視開始時の各descriptor statusを0で初期化し、監視開始前に成立したdescriptorも最初の変化として取得する。
-     * ステータスが0であれば未使用descriptorの初期状態であるため対象から除外する。
+     * Save receive descriptors with nonzero stat that do not match CSB_RX_STAT_FAIL_MASK.
+     * By detecting changes per descriptor, this also captures later receptions with identical status words.
+     * Initialize each descriptor status to 0 at monitoring start so descriptors completed before monitoring are captured as the first change.
+     * Exclude status 0, which is the initial state of an unused descriptor.
      */
     uint16_t last_stat[CSB_RX_DESC_COUNT];
     for (int d = 0; d < CSB_RX_DESC_COUNT; ++d) {
         last_stat[d] = 0;
     }
     /*
-     * 1件144バイトである。
-     * UARTタスクのスタックは3072バイトしかないため、4件分をスタック領域に確保するとオーバーフローして再起動する。
-     * 配列を静的領域へ配置する。
-     * switch1_csb_rx_watchはUARTタスクからだけ呼び出されるため、共有しても競合しない。
+     * Each entry is 144 bytes.
+     * The UART task has only a 3072-byte stack; allocating four entries there would overflow it and cause a restart.
+     * Place the array in static storage.
+     * switch1_csb_rx_watch is called only from the UART task, so sharing the array causes no contention.
      */
     static struct csb_rx_hit hit[CSB_RX_HIT_MAX];
     unsigned hits = 0;
     const int64_t until = esp_timer_get_time() + (int64_t)duration_ms * 1000;
     /*
-     * ROMによる設定変更を検知するため、CSB_RX_CS_ADDR+CS_HOPCNTL_OFFSETのワードを再設定直前に収集する。
+     * Capture the word at CSB_RX_CS_ADDR+CS_HOPCNTL_OFFSET immediately before reapplying settings, to detect ROM changes.
      */
     uint16_t hop_seen[4];
     uint16_t hop_count[4];
@@ -671,7 +671,7 @@ uint32_t switch1_csb_rx_watch(uint32_t duration_ms)
             }
         }
         /*
-         * 受信側ではROMが設定を再構成しないため、ここでは変更しない。
+         * ROM does not rebuild receiver settings here, so leave them unchanged.
          */
         for (int d = 0; d < CSB_RX_DESC_COUNT; ++d) {
             const uint16_t head = base[d * CSB_RX_DESC_WORDS];
@@ -785,10 +785,10 @@ esp_err_t switch1_csb_rx_dump(uint16_t offset, uint8_t count, uint16_t *out)
 
 
 /*
- * CSB受信のHCIイベント(0x51)を保存する。
- * bluedroidはこのイベントを処理しないため、bb_hci.cのイベントハンドラーが受信し、bb_csb_rx_on_eventへ渡す。
+ * Save CSB reception HCI events (0x51).
+ * Bluedroid does not handle this event; the event handler in bb_hci.c receives it and forwards it to bb_csb_rx_on_event.
  *
- * イベントのフィールド:
+ * Event fields:
  * - BD_ADDR(6)
  * - LT_ADDR(1)
  * - CLK(4)
@@ -796,7 +796,7 @@ esp_err_t switch1_csb_rx_dump(uint16_t offset, uint8_t count, uint16_t *out)
  * - Receive_Status(1)
  * - Fragment(1)
  * - Data_Length(1)
- * - Data(可変長)
+ * - Data (variable length)
  */
 void bb_csb_rx_on_event(BT_HDR *p_msg)
 {
@@ -818,7 +818,7 @@ void bb_csb_rx_on_event(BT_HDR *p_msg)
             memcpy(s_csb_rx_data, p + 20, copy);
             s_csb_rx_length = copy;
             s_csb_rx_packet_pending = true;
-            // 同期に失敗した受信もイベントとして通知される
+            // Even failed synchronization attempts are reported as events.
             if (s_csb_rx_status == 0) {
                 s_csb_rx_event_count++;
             }

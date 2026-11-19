@@ -9,28 +9,28 @@
 #include "esp_sdp_api.h"
 
 /**
- * @brief 保存済みSwitchアドレスがない状態
- * @note 検出可能・接続可能モードでペアリング受付を行う
+ * @brief No saved Switch address
+ * @note Accept pairing in discoverable and connectable mode
  */
 extern volatile bool g_pairing;
 
 /**
- * @brief 自動ページ開始と接続可能モードを停止した状態
- * @note 切断通知のたびに停止処理を繰り返すと、Switchの再接続とESP32の切断要求が相互に繰り返されるため、停止処理は1回だけ実行する。
+ * @brief Automatic paging and connectable mode are stopped
+ * @note Run the stop sequence only once; repeated stops on every disconnect notification cause Switch reconnections and ESP32 disconnect requests to repeat.
  */
 extern volatile bool g_stay_disconnected;
 
 /**
- * @brief HID接続要求の連続失敗回数
- * @note 一定回数に達したら再起動してBluetooth接続状態を初期化する
+ * @brief Consecutive HID connection request failures
+ * @note Restart and reinitialize the Bluetooth connection state after a threshold is reached
  */
 extern uint32_t g_connect_failures;
 
-/** @brief リンク監視タイムアウトのスロット数 */
+/** @brief Number of slots in the link supervision timeout */
 #define LINK_SUPERVISION_TIMEOUT_SLOTS 3200
 /**
- * @brief ページ時間切れのスロット数
- * @note 1スロットは0.625msで、0x1400は3.2秒。
+ * @brief Number of slots in a paging timeout
+ * @note One slot is 0.625 ms; 0x1400 is 3.2 seconds.
  */
 #define WAKE_PAGE_TIMEOUT_SLOTS UINT16_C(0x1400)
 extern void BTM_SetDefaultLinkSuperTout(uint16_t timeout);
@@ -44,7 +44,7 @@ void swpro_sdp_callback(esp_sdp_cb_event_t event, esp_sdp_cb_param_t *param);
 #endif
 
 /**
- * @brief ウェイクアップ処理で生成したACLリンクをホスト側Bluetoothスタックへ登録したあと、ACLを切断して通常ページを開始するまでの進行状態
+ * @brief Progress after registering the wake-up-created ACL link with the host Bluetooth stack until ACL disconnection and normal paging begin
  */
 extern volatile bool g_wake_page_pending;
 extern volatile int64_t g_wake_page_deadline_us;
@@ -53,24 +53,24 @@ extern volatile uint8_t g_wake_disconnect_tries;
 extern bool g_wake_local_release_tried;
 
 /**
- * @brief HID接続とウェイクアップ処理が停止している期間に再起動する予定時刻
- * @note 0は再起動を予約していない状態を示す
+ * @brief Scheduled restart time while HID connections and wake-up processing are stopped
+ * @note 0 means no restart is scheduled
  */
 extern int64_t g_idle_restart_due_us;
 
 void swpro_protocol_task(void *argument);
 
 /**
- * @brief ACL切断完了を待ってから再起動する
- * @param restart_marker 再起動後の処理を選択する識別値
- * @note ACLが残った状態で再起動すると、Switch側にリンクが残るため避ける
+ * @brief Restart after waiting for ACL disconnection to finish
+ * @param restart_marker Marker selecting the post-restart action
+ * @note Avoid restarting with an active ACL link, since the Switch would retain that link
  */
 void swpro_restart_after_disconnect(uint32_t restart_marker);
 
 /**
- * @brief 自動ページ開始と接続可能モードを停止する
- * @param reason ログに出力する停止理由
- * @note HOME入力で接続試行を開始するまで、自動接続を再開しない
+ * @brief Stop automatic paging and connectable mode
+ * @param reason Reason logged for stopping
+ * @note Do not resume automatic connections until a connection attempt starts from HOME input
  */
 void swpro_stop_auto_connect(const char *reason);
 

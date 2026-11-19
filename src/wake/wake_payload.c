@@ -6,11 +6,11 @@
 #include "wakeup_code.h"
 
 /*
- * 白色化列の初期値はピコネットクロックのCLK[6:1]で決まり、送信間隔3.75ms(6スロット)ではバーストごとに次の列へ進む。
+ * The whitening seed comes from piconet CLK[6:1]; with a 3.75 ms (six-slot) transmit interval, each burst advances to the next sequence.
  *
- * - 要素はバーストごとの白色化列の順に並ぶ。
- * - 周期32で全32種類を順に使用する。
- * - この順序を変更してはならない。
+ * - Entries are ordered by the per-burst whitening sequence.
+ * - All 32 variants are used in sequence, repeating every 32 bursts.
+ * - Do not change this ordering.
  */
 static const uint8_t k_whitening_seed_cycle[WHITEN_VARIANT_COUNT] = {
     0x69, 0x01, 0x31, 0x7D, 0x05, 0x5B, 0x6B, 0x03,
@@ -26,8 +26,8 @@ uint8_t wake_whiten_variant_index(uint32_t clkn, uint8_t offset)
 }
 
 /*
- * 白色化用7ビットLFSRを1段進める。
- * - 出力 = reg & 1
+ * Advance the seven-bit whitening LFSR one step.
+ * - Output = reg & 1
  * - fb = (reg ^ (reg >> 4)) & 1
  * - reg = (reg >> 1) | (fb << 6)
  */
@@ -96,10 +96,10 @@ void wake_build_phase3(const uint8_t addr[6],
                         uint8_t plain[WAKE_PHASE3_LENGTH])
 {
     /*
-     * ウェイクアップ用アクセスコードの往復では白色化を使用しないため、フェーズ3もフェーズ1と同様に相殺処理を施し、電波上の本体を白色化前のビット列にする。
+     * The wake-up access-code exchange is unwhitened; apply the same cancellation to Phase 3 as to Phase 1 so the over-the-air payload has its original, unwhitened bits.
      *
-     * - DM1ではペイロードヘッダーが8ビット形式である。
-     * - 読み飛ばすビット数はDH3やDH5と異なる。
+     * - DM1 has an eight-bit payload header.
+     * - The number of bits to skip differs from DH3 and DH5.
      */
     for (uint8_t i = 0; i < WHITEN_VARIANT_COUNT; ++i) {
         uint8_t *const body = variants[i];

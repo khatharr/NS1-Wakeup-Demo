@@ -33,7 +33,7 @@ void wake_tx_task(void *argument)
                 wake_finish_tx("UART stop requested");
                 continue;
             }
-            // 送信開始前にも期限を判定する。接続処理の完了イベントを受信できない場合に送信開始を待ち続けないよう、期限到達時は送信処理を終了する。
+            // Also check the deadline before transmission begins. If no connection-complete event arrives, stop at the deadline instead of waiting indefinitely to start.
             if (esp_timer_get_time() >= g_wake_deadline_us) {
                 const bool receive_after_stop =
                     g_wake_started && g_wake_receive_after;
@@ -48,7 +48,7 @@ void wake_tx_task(void *argument)
                 continue;
             }
             if (!g_wake_started) {
-                // 接続処理が進行中の場合はLT_ADDRの予約がstatus 0x0bで拒否されるため、接続処理の完了後に送信を開始する。
+                // An active connection attempt causes LT_ADDR reservation to fail with status 0x0b; start transmission after connection processing completes.
                 if (g_connect_deadline_us != 0) {
                     vTaskDelay(pdMS_TO_TICKS(10));
                     continue;
@@ -58,7 +58,7 @@ void wake_tx_task(void *argument)
                     g_wake_payload, g_wake_length,
                     g_wake_interval, g_wake_channel);
                 if (start_error != ESP_OK) {
-                    // 再接続のページが進行中の場合はLT_ADDRの予約またはCSBの有効化が拒否される。期限まで待機しながら送信開始を再試行する。
+                    // If reconnect paging is in progress, LT_ADDR reservation or CSB enabling is rejected; retry starting transmission until the deadline.
                     if (g_wake_start_failures < 3) {
                         ESP_LOGW(TAG, "Wake TX start failed; retrying: %s",
                                  esp_err_to_name(start_error));
@@ -68,9 +68,9 @@ void wake_tx_task(void *argument)
                     continue;
                 }
                 /*
-                 * HCIはパケットのスロット数+3未満の送信間隔を受け付けない。
-                 * - DH5では8スロット(5ms)が下限である。
-                 * - 送信間隔を6スロット(3.75ms)にするため、開始後にスケジュール要素の送信周期を直接変更する。
+                 * HCI rejects transmit intervals shorter than packet slot count + 3.
+                 * - For DH5, the minimum is eight slots (5 ms).
+                 * - To use six slots (3.75 ms), directly change the schedule-element transmit period after starting.
                  */
                 if (g_wake_real_interval != 0) {
                     uint16_t current_interval = 0;
@@ -95,7 +95,7 @@ void wake_tx_task(void *argument)
                 last_task_yield_us = g_wake_start_us;
             }
 
-            // 使用する配列要素はバースト番号ではなくクロックから毎回算出するため、区切りを取りこぼしても後続バーストとの対応がずれない。
+            // Calculate the array index from the clock for each burst, not from the burst counter, so missing a boundary does not misalign later variants.
             if (g_wake_variant_enabled) {
                 const bool descriptor_present =
                     switch1_csb_descriptor_offset() != 0;
@@ -103,9 +103,9 @@ void wake_tx_task(void *argument)
                 bool payload_written = false;
 
                 /*
-                 * - 応答を検出したら、フェーズ3が応答の634us後に送信されるよう送信イベントを移動する。
-                 * - 応答と送信はともに6スロット周期であるため、目標時刻へ周期の倍数を加えても位置は変わらない。
-                 * - 分解能は1スロット(625us)で、最大312usの誤差が生じる。
+                 * - On response detection, move the transmit event so Phase 3 is sent 634 us after the response.
+                 * - Both response and transmission repeat every six slots, so adding multiples of that period does not change relative phase.
+                 * - Resolution is one slot (625 us), allowing up to 312 us of error.
                  */
                 if (g_wake_phase3_pending && g_wake_shift_interval == 0 &&
                     g_wake_rx_detect_us != 0 &&
@@ -113,9 +113,9 @@ void wake_tx_task(void *argument)
                     now_us >= g_wake_rx_detect_us +
                                (int64_t)g_wake_phase3_hold_ms * 1000) {
                     /*
-                     * - 受信時刻を読み出せない場合は送信間隔を7スロットに変更してフェーズ3を連続送信する。
-                     * - 応答は6スロットごとに続くため、応答に対する送信位置が1バーストごとに1スロットずつ進む。
-                     * - 6回で6通りの位置をすべて通過する。
+                     * - If the receive timestamp is unavailable, change the transmit interval to seven slots and send successive Phase 3 bursts.
+                     * - Responses recur every six slots, so the transmit position relative to the response advances one slot per burst.
+                     * - Six bursts traverse all six positions.
                      */
                     int32_t phase3_interval_slots = g_wake_phase3_step;
                     uint32_t scheduled_tx_slot = UINT32_MAX;
@@ -124,14 +124,14 @@ void wake_tx_task(void *argument)
                         ESP_OK;
                     esp_err_t reschedule_error;
                     if (g_wake_phase3_target_slot != 0) {
-                        // 受信処理との競合で先送りされた既存イベントを、受信時刻から算出した直近の同位相へControllerタスク内で移動する。
+                        // Move a pending event delayed by receive contention inside the controller task to the nearest matching phase calculated from the receive timestamp.
                         phase3_interval_slots = g_wake_interval;
                         reschedule_error = switch1_csb_tx_reschedule(
                             g_wake_phase3_target_slot,
                             g_wake_phase3_bitoff,
                             g_wake_phase3_gap, &scheduled_tx_slot);
                     } else {
-                        // 受信時刻を取得できない診断経路では、送信間隔を1回だけ変更して応答に対する送信位置を走査する。
+                        // In the diagnostic path without a receive timestamp, change the transmit period once to scan transmit positions relative to the response.
                         uint32_t next_tx_slot = 0;
                         if (switch1_csb_tx_read_schedule(&next_tx_slot, NULL)) {
                             scheduled_tx_slot = next_tx_slot;
@@ -155,9 +155,9 @@ void wake_tx_task(void *argument)
                         if (scheduled_tx_slot != UINT32_MAX) {
                             g_wake_phase3_schedule_slot = scheduled_tx_slot;
                             /*
-                             * - フェーズ3の送信時刻が確定した時点で、直後のページスキャン受信も登録する。
-                             * - 3スロット以上先でない場合はスケジューラが開始時刻を補正する。
-                             * - ACLリンクがすでに成立している場合は同じlink 0を再作成することになるため、ACLリンクの直接登録を開始しない。
+                             * - When Phase 3 timing is fixed, also register page-scan reception immediately afterward.
+                             * - If the event is not at least three slots ahead, the scheduler adjusts the start time.
+                             * - If an ACL link is already established, do not start direct ACL registration because it would recreate the same link 0.
                              */
                             if (!g_direct_handoff_disabled &&
                                 !g_acl_connected &&
@@ -207,9 +207,9 @@ void wake_tx_task(void *argument)
                 switch (g_wake_state) {
                 case WAKE_BURST_WAIT_CLEAR:
                     /*
-                     * - CSB開始直後はdescriptorがすでに非ゼロの場合がある。
-                     * - descriptorが0になったことを1回確認してから、次の立ち上がりを検出する。
-                     * - 0への遷移を取りこぼした場合は、送信間隔が経過した時点で次の状態へ移行する。
+                     * - Immediately after CSB starts, the descriptor may already be nonzero.
+                     * - First observe it becoming zero, then detect the next rising edge.
+                     * - If the transition to zero is missed, advance to the next state when the transmit interval elapses.
                      */
                     if (!descriptor_present ||
                         now_us - g_wake_burst_start_us >=
@@ -220,9 +220,9 @@ void wake_tx_task(void *argument)
 
                 case WAKE_BURST_WAIT_START:
                     /*
-                     * - descriptorの立ち上がりを取りこぼすと、バーストは直前のバーストのペイロードで送信される。
-                     * - 送信間隔が経過しても立ち上がりを検出できない場合は、経過時間をバースト境界として扱う。
-                     * - 添字はその時点で読み出したクロックから算出するため、この経路でも対応関係は維持される。
+                     * - If the descriptor rising edge is missed, that burst is sent with the previous burst's payload.
+                     * - If no rising edge is detected within one transmit interval, treat elapsed time as the burst boundary.
+                     * - The index is still calculated from the clock read at that point, preserving variant alignment.
                      */
                     if (!descriptor_present &&
                         now_us - g_wake_burst_start_us <
@@ -230,9 +230,9 @@ void wake_tx_task(void *argument)
                         break;
                     }
                     /*
-                     * - フェーズ3を送信するバーストでは、経過時間を境界とする経路を使用しない。
-                     * - descriptorがない状態で送信すると、ヘッダーとペイロードヘッダーを更新できず、長さとLLIDがフェーズ1の設定で送信される。
-                     * - descriptorが非ゼロになるまで待機する。
+                     * - Do not use the elapsed-time boundary path for a Phase 3 burst.
+                     * - Sending without a descriptor prevents updates to the header and payload header, so length and LLID would remain from Phase 1.
+                     * - Wait until the descriptor becomes nonzero.
                      */
                     if (!descriptor_present && g_wake_phase3_pending) {
                         break;
@@ -241,9 +241,9 @@ void wake_tx_task(void *argument)
                         g_wake_forced_starts++;
                     }
                     /*
-                     * - descriptorが非ゼロになった時点を、このバーストの送信開始時刻として扱う。
-                     * - ROMがウェイクアップ用parityとチャンネルを再設定するため、ここで再適用する。
-                     * - 再適用しない場合、アクセスコードが通常値に再設定される。
+                     * - Treat the descriptor becoming nonzero as the start time for this burst.
+                     * - ROM reapplies normal parity and channel, so reapply wake-up settings here.
+                     * - Otherwise the access code is reset to its normal value.
                      */
                     switch1_csb_wake_refresh();
                     g_wake_burst_start_us = now_us;
@@ -256,10 +256,10 @@ void wake_tx_task(void *argument)
                     if (phase3_schedule_ready &&
                         g_wake_phase3_schedule_slot != UINT32_MAX) {
                         /*
-                         * - 判定は目標時刻との一致ではなく、目標時刻以後とする。
-                         * - 受信との競合で送信が1回取り消されると、次回時刻が目標時刻を越えて一致判定できなくなる。
-                         * - 加算するスロット数は送信周期そのものなので、目標時刻を越えてもスロット位相は維持される。
-                         * - 応答も同じ周期で続くため、目標時刻以後の最初のバーストでも送信位置は変わらない。
+                         * - Check at or after the target time, not only for exact equality.
+                         * - If receive contention cancels a transmission, the next event passes the target and would not match an equality test.
+                         * - The number of slots added is the transmit period, so slot phase is preserved even after the target.
+                         * - Responses recur with the same period, so relative transmit position is unchanged on the first burst after the target.
                          */
                         uint32_t current_slot = 0;
                         if (!switch1_csb_tx_read_schedule(&current_slot, NULL)) {
@@ -284,12 +284,12 @@ void wake_tx_task(void *argument)
                                     (int64_t)g_wake_phase3_ms * 1000);
                     if (g_wake_in_phase3 && g_wake_phase3_raw) {
                         /*
-                         * - ハードウェアはヘッダーとペイロードヘッダーも白色化する。
-                         * - control structureで白色化を無効にし、書き込んだペイロードを白色化せず送信する。
-                         * - ペイロードには白色化を相殺した内容ではなく、未処理の内容を書き込む。
+                         * - Hardware also whitens the packet header and payload header.
+                         * - Disable whitening in the control structure to send the written payload unchanged.
+                         * - Write the plain payload rather than the pre-whitened cancellation variant.
                          */
                         switch1_csb_tx_set_whitening_disable(true);
-                         // ここではUARTへ出力しない。フェーズ3を送信するまでの経路にUART出力を挿入すると、その処理時間だけ送信が遅れる。
+                         // Do not log to UART here; adding UART output before Phase 3 would delay transmission by the logging duration.
                         if (!g_wake_phase3_format_done) {
                             g_wake_phase3_format_done = true;
                             (void)switch1_csb_tx_set_frame_format(
@@ -298,10 +298,10 @@ void wake_tx_task(void *argument)
                     }
                     if (g_wake_in_phase3) {
                         /*
-                         * - ペイロードヘッダーはハードウェアが白色化するため、送信側で相殺できない。
-                         * - 長さフィールドは実際に送信するバイト数を決める。
-                         * - LLIDフィールドを1または2以外にすると、baseband側のASSERT_PARAM(8 0)でパニックする。
-                         * - その結果、電波上ではペイロードヘッダーだけに白色化が適用される。
+                         * - Hardware whitens the payload header, which cannot be cancelled from the transmitter side.
+                         * - The length field determines the number of bytes actually transmitted.
+                         * - Setting LLID to anything other than 1 or 2 triggers baseband ASSERT_PARAM(8 0).
+                         * - As a result, only the payload header is whitened over the air.
                          */
                         switch1_csb_write_descriptor(g_wake_phase3_header,
                                                      g_wake_phase3_pheader);
@@ -309,16 +309,16 @@ void wake_tx_task(void *argument)
                             WAKE_PHASE3_AIRTIME_US);
                         g_wake_phase3_bursts++;
                         /*
-                         * - フェーズ3の送信完了後に送信間隔を変更する。途中では変更しない。
-                         * - 変更した間隔を維持すると、応答に対する送信位置が1バーストごとに1スロットずつ進む。
+                         * - Change the transmit interval after the Phase 3 burst finishes, never during it.
+                         * - Keeping the changed interval advances the transmit position relative to the response by one slot per burst.
                          */
                         if (g_wake_shift_interval != 0 &&
                             g_wake_shift_interval != UINT16_MAX &&
                             g_wake_phase3_bursts >=
                                 g_wake_phase3_limit) {
                             /*
-                             * - フェーズ3の後は送信せず、ページ開始までの21msはCSB送信を停止する。
-                             * - CSBの停止にはHCIの往復で数msかかり、その間にフェーズ1が再送されるため、次回の送信時刻を十分先へ移動する。
+                             * - After Phase 3, stop sending; keep CSB transmission stopped during the 21 ms before paging begins.
+                             * - Stopping CSB takes several ms of HCI exchanges, during which Phase 1 may retransmit; move the next transmit time sufficiently far ahead.
                              */
                             if (switch1_csb_tx_set_interval(
                                     g_wake_shift_interval,
@@ -349,8 +349,8 @@ void wake_tx_task(void *argument)
                         if (switch1_csb_read_clkn(&clkn)) {
                             g_wake_clock_failures_run = 0;
                             /*
-                             * - 書き込み対象の送信はdescriptor出現からlead_slots後に始まるため、CLKNにその分を加えて添字を算出する。
-                             * - CLKNの単位は312.5usであり、1スロットは2カウントに相当する。
+                             * - The targeted transmission begins lead_slots after descriptor appearance; add that to CLKN when calculating the index.
+                             * - CLKN is measured in 312.5 us units, so one slot corresponds to two counts.
                              */
                             uint8_t basis = g_wake_variant_start;
                             if (g_wake_sweep) {
@@ -369,7 +369,7 @@ void wake_tx_task(void *argument)
                             }
                             g_wake_state = WAKE_BURST_WAIT_GAP;
                         } else {
-                             // サンプル完了ビットが連続してクリアされない場合は、レジスタの取り扱いが誤っている可能性があるため、送信を終了して報告する。
+                             // If the sample completion bit repeatedly fails to clear, the register handling may be wrong; stop transmission and report it.
                             g_wake_clock_failures++;
                             if (++g_wake_clock_failures_run >= 4) {
                                 ESP_LOGE(TAG,
@@ -384,9 +384,9 @@ void wake_tx_task(void *argument)
 
                 case WAKE_BURST_WAIT_GAP: {
                     /*
-                     * - 送信中のバーストへ書き込むと、そのバーストの途中で内容が変化する。
-                     * - 電波を送信していない区間まで待機する。
-                     * - descriptorが消える時刻は送信終了時刻と一致しないため、区間の判定にはdescriptorではなく経過時間を使用する。
+                     * - Writing to a burst while it is transmitting changes its payload midway through that burst.
+                     * - Wait until the radio is not transmitting.
+                     * - Descriptor disappearance does not coincide with transmission end, so use elapsed time rather than the descriptor to identify the quiet period.
                      */
                     const int64_t elapsed = now_us - g_wake_burst_start_us;
                     if (elapsed < g_wake_write_delay_us) {
@@ -397,9 +397,9 @@ void wake_tx_task(void *argument)
                             (uint16_t)(elapsed > 65535 ? 65535 : elapsed);
                     }
                     /*
-                     * - フラグがtrueになった時点でペイロード本体をフェーズ3の内容へ切り替える。
-                     * - ヘッダーは現在のバーストに反映されるが、本体は次のバーストから反映される。
-                     * - 先に書き込まない場合、1回だけ送信するフェーズ3の本体がフェーズ1の内容になる。
+                     * - When the flag becomes true, switch the payload body to the Phase 3 content.
+                     * - Header changes apply to the current burst, but body changes apply starting with the next burst.
+                     * - Without writing beforehand, the single transmitted Phase 3 would contain the Phase 1 body.
                      */
                     const bool phase3_body =
                         g_wake_in_phase3 || g_wake_phase3_pending;
@@ -420,9 +420,9 @@ void wake_tx_task(void *argument)
                         g_wake_phase3_body_writes++;
                     }
                     /*
-                     * - フェーズ3のバーストではdescriptorが解放されるまで待機する。
-                     * - descriptorはControllerが送信を登録した後に解放されるため、待たずに状態を次の状態へ変更すると、解放前のdescriptorを次のバーストの立ち上がりと誤検出する。
-                     * - 待機上限は4msとする。
+                     * - During the Phase 3 burst, wait until the descriptor has been freed.
+                     * - The controller frees the descriptor after scheduling the transmission; advancing too early would mistake that existing descriptor for the next burst's rising edge.
+                     * - Limit the wait to 4 ms.
                      */
                     if (g_wake_in_phase3 && g_wake_phase3_pending) {
                         const int64_t limit = esp_timer_get_time() + 4000;
@@ -436,9 +436,9 @@ void wake_tx_task(void *argument)
                         }
                     }
                     /*
-                     * - 応答を検出して切り替えたフェーズ3が、必要回数だけ送信される完了時刻を記録する。
-                     * - ここで書き込んだ内容はdescriptor出現からlead_slots後に送信され、DM1の12バイトを送信する時間は約400usである。
-                     * - UARTタスクはこの時刻の経過後に受信を停止し、ページ処理へ移行する。
+                     * - Record the completion time after the required number of Phase 3 bursts triggered by a detected response.
+                     * - Data written here is transmitted lead_slots after descriptor appearance; transmitting a 12-byte DM1 takes about 400 us.
+                     * - After that timestamp, the UART task stops reception and moves to paging.
                      */
                     if (g_wake_in_phase3 && g_wake_phase3_pending &&
                         g_wake_phase3_done_us == 0 &&
@@ -446,7 +446,7 @@ void wake_tx_task(void *argument)
                         g_wake_phase3_rounds_done++;
                         if (g_wake_phase3_rounds_done <
                             g_wake_phase3_rounds) {
-                             // 掃引中に応答の連続送信が終了する場合がある。フェーズ1の送信へ切り替えて次の応答列を待ち、応答を検出したら再度掃引する。
+                             // The response burst train can end during a sweep; switch back to Phase 1, await the next response train, then sweep again when a response is detected.
                             g_wake_phase3_pending = false;
                             g_wake_phase3_bursts = 0;
                             g_wake_shift_interval = 0;
@@ -454,8 +454,8 @@ void wake_tx_task(void *argument)
                             break;
                         }
                         /*
-                         * - 送信完了時刻は、実際に登録されている送信スロットから算出する。
-                         * - 応答検出時点で次の送信スロットが30スロット先にある場合もあり、lead_slots後と固定すると、送信前に送信タスクを終了することになる。
+                         * - Calculate the transmit-completion time from the actual scheduled transmit slot.
+                         * - At response detection the next transmit slot can be 30 slots away; assuming lead_slots would terminate the transmit task before transmission.
                          */
                         int64_t lead_us =
                             (int64_t)g_wake_lead_slots * 625;
@@ -466,7 +466,7 @@ void wake_tx_task(void *argument)
                             const uint32_t ahead =
                                 (g_wake_phase3_actual_slot - now_slot) &
                                 UINT32_C(0x07ffffff);
-                             // 応答列は約50msしか継続しないため、それより遠い送信スロット値は読み違いと判断して採用しない。
+                             // The response train lasts only about 50 ms, so treat a scheduled slot farther away as a misread and reject it.
                             if (ahead >= g_wake_lead_slots && ahead <= 80) {
                                 lead_us = (int64_t)ahead * 625;
                             }
@@ -475,14 +475,14 @@ void wake_tx_task(void *argument)
                             g_wake_burst_start_us + lead_us +
                             WAKE_PHASE3_AIRTIME_US;
                         /*
-                         * - フェーズ3の送信完了時刻に送信処理を終了する。
-                         * - フェーズ3を1回送信した後に停止する。
-                         * - 書き込んだ内容が送信されるのはlead_slots後であるため、直ちに停止するとフェーズ3自体が送信されない。
+                         * - Terminate transmission at the Phase 3 completion timestamp.
+                         * - Stop after sending Phase 3 once.
+                         * - The written body is transmitted lead_slots later, so stopping immediately would prevent Phase 3 transmission.
                          */
                         g_wake_deadline_us = g_wake_phase3_done_us;
                         /*
-                         * - ACLリンクの直接登録を開始している場合は、送信完了後にウェイクアップ用受信を再登録しない。
-                         * - 受信descriptorのリングバッファと添字をACL受信とCSB受信で共有しているため、ウェイクアップ受信を継続するとACLリンクの受信と競合する。
+                         * - If direct ACL registration has started, do not re-register wake-up reception after transmission completes.
+                         * - ACL and CSB reception share the receive-descriptor ring buffer and index, so continuing wake-up reception would conflict with ACL reception.
                          */
                         if (g_direct_handoff_started) {
                             g_wake_receive_after = false;
@@ -499,8 +499,8 @@ void wake_tx_task(void *argument)
                 }
 
                 /*
-                 * - 書き込み直後は次のバーストまで時間があるため、他のタスクへCPUを譲る。
-                 * - フェーズ3のフラグがtrueの間はCPUの実行権を他のタスクへ移さない。1ms待機すると、descriptorが非ゼロになる625usの区間を越えてバーストを取りこぼす。
+                 * - Yield CPU time to other tasks after writing because there is time before the next burst.
+                 * - While the Phase 3 flag is true, do not yield CPU; a 1 ms wait could miss the 625 us window in which the descriptor is nonzero.
                  */
                 if (g_wake_phase3_pending && g_wake_phase3_done_us == 0) {
                     esp_rom_delay_us(20);

@@ -1,7 +1,5 @@
 # Switch 1 Wake-up Protocol
 
-[日本語](wakeup-protocol.md) | English
-
 Controllers that wake the original Nintendo Switch, referred to as Switch 1 in this project, from sleep perform a dedicated communication sequence before the normal BR/EDR paging procedure.
 This sequence uses a wake-up access code calculated from the BD_ADDR of the target Switch.
 

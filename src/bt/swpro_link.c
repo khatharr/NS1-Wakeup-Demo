@@ -31,7 +31,7 @@
 #define TAG "swpro"
 
 #define RECONNECT_INTERVAL_US UINT64_C(200000)
-// Switchが前回のACL/L2CAPセッションを解放し、HID初期化を開始できるよう800ms待機する
+// Wait 800 ms for the Switch to release the previous ACL/L2CAP session and become ready for HID initialization.
 #define WAKE_PAGE_GAP_US INT64_C(800000)
 #define STATUS_INTERVAL_US UINT64_C(5000000)
 
@@ -41,9 +41,9 @@ volatile bool g_acl_connected;
 volatile bool g_pairing;
 static uint32_t s_reconnect_attempts;
 int64_t g_next_reconnect_us;
-// HCI Create Connectionへ指定するClock_Offset。bit15は有効フラグ
+// Clock_Offset passed to HCI Create Connection; bit 15 is the valid flag.
 uint16_t g_hci_clock_offset;
-// SwitchとESP32のネイティブクロックの差。ACLリンクの直接登録では27ビット値をcontrol structureへ渡す
+// Difference between native clocks on the Switch and ESP32. Direct ACL registration passes a 27-bit value to the control structure.
 uint32_t g_direct_clock_delta;
 uint32_t g_direct_rx_clk;
 uint16_t g_direct_rx_bitoff;
@@ -51,25 +51,25 @@ uint8_t g_direct_lt_addr;
 volatile bool g_direct_clock_delta_valid;
 volatile bool g_direct_sync_valid;
 volatile bool g_direct_handoff_started;
-// CMD_WAKE_STARTのpayload[27]が1の場合はACLリンクを登録せず、フェーズ3の送信後20msで通常ページを開始する
+// When CMD_WAKE_START payload[27] is 1, skip ACL registration and start normal paging 20 ms after Phase 3 transmission.
 volatile bool g_direct_handoff_disabled;
 volatile bool g_direct_handoff_active;
 volatile esp_err_t g_direct_handoff_start_err;
 volatile int64_t g_direct_handoff_deadline_us;
 volatile int64_t g_direct_handoff_quiet_until_us;
 volatile bool g_reconnect_paused;
-// 進行中のページがあるとCSBの有効化がstatus 0x0bで拒否されるため、CSB送信前は通常ページ開始を禁止する
+// Prevent normal paging before CSB transmission because ongoing paging causes CSB enable to fail with status 0x0b.
 volatile bool g_reconnect_disabled;
 
-// 待機時間に0を指定すると、動的チャンネルがないACLリンクを切断する
+// A zero wait time disconnects ACL links with no dynamic channels.
 extern uint8_t L2CA_SetIdleTimeoutByBdAddr(uint8_t *bd_addr, uint16_t timeout,
                                            uint8_t transport);
 #define BT_TRANSPORT_BR_EDR_LOCAL 1
 
-// 監視タイムアウトの単位は0.625msのスロット
+// The supervision timeout is measured in 0.625 ms slots.
 extern void BTM_SetDefaultLinkSuperTout(uint16_t timeout);
 
-// 動的チャンネルの有無にかかわらずHCI Disconnectを送信する
+// Send HCI Disconnect whether or not dynamic channels are present.
 extern uint8_t btm_remove_acl(uint8_t *bd_addr, uint8_t transport);
 
 extern uint8_t BTM_GetRole(uint8_t *bd_addr, uint8_t *role);
@@ -90,8 +90,8 @@ int64_t g_connect_deadline_us;
 uint32_t g_connect_failures;
 #define CONNECT_FAILURE_LIMIT 20
 
-// bluedroidの電源管理(bta_dm_pm)はHID接続に対して、アプリケーションからの指示なしにsniffとunsniffの要求を繰り返し、Switch側のリンク制御とLMPが衝突する。
-// リンカの--wrapでESP32からの電源モード変更を全て無効にし、Switch主導のリンク制御に従う。BTM_SUCCESSを返せば呼び出し側は再試行せずに終わる。
+// Bluedroid power management (bta_dm_pm) repeatedly requests sniff and unsniff for HID connections without application direction, colliding with Switch-side link control and LMP.
+// Disable all ESP32-initiated power-mode changes via the linker's --wrap and follow Switch-initiated link control. Returning BTM_SUCCESS prevents the caller from retrying.
 static volatile uint32_t s_pm_suppressed;
 
 extern uint8_t __real_BTM_SetDeviceClass(uint8_t dev_class[3]);
@@ -100,7 +100,7 @@ uint8_t __wrap_BTM_SetDeviceClass(uint8_t dev_class[3])
 {
     uint8_t cod[3];
     memcpy(cod, dev_class, sizeof(cod));
-    // General Discoverableへの変更時もSwitch 2が検出するCoD 0x002508を維持する。
+    // Preserve CoD 0x002508, which Switch 2 recognizes, even when switching to General Discoverable.
     cod[1] |= 0x20;
     return __real_BTM_SetDeviceClass(cod);
 }
@@ -115,7 +115,7 @@ uint8_t __wrap_BTM_SetPowerMode(uint8_t pm_id, uint8_t *remote_bda, void *p_mode
 }
 
 
-// スリープ直後の再接続と切断が繰り返されないよう、自動接続停止処理を1回だけ実行する
+// Stop automatic connections only once to avoid repeated reconnects and disconnects immediately after sleep.
 volatile bool g_stay_disconnected;
 
 bool g_wake_local_release_tried;
@@ -123,8 +123,8 @@ bool g_wake_local_release_tried;
 int64_t g_idle_restart_due_us;
 
 
-// ACLリンクが張られた状態で再起動すると、Switchへ切断が通知されないので、Switch側は監視タイムアウトが切れるまでリンクを保持し続ける。
-// 接続サイクルはACL接続を残した再起動を毎回繰り返すことになるため、再起動の前に必ずACL切断を完了させる。
+// Restarting with an active ACL link does not notify the Switch of disconnection, so the Switch retains the link until its supervision timeout.
+// A connection cycle would repeatedly restart while leaving the ACL link active; always finish disconnecting ACL before restarting.
 void swpro_restart_after_disconnect(uint32_t restart_marker)
 {
     esp_bd_addr_t host;
@@ -155,7 +155,7 @@ void swpro_stop_auto_connect(const char *reason)
     }
     g_reconnect_disabled = true;
     g_connect_deadline_us = 0;
-    // 予約済みのページを取り消す。g_reconnect_disabledを設定するだけでは、すでにswitch1_hci_clock_offset_set()で許可したページ開始要求が1回実行される。
+    // Cancel scheduled paging. Simply setting g_reconnect_disabled still allows one paging request already authorized by switch1_hci_clock_offset_set().
     switch1_hci_page_cancel();
     esp_bt_gap_set_scan_mode(ESP_BT_NON_CONNECTABLE, ESP_BT_NON_DISCOVERABLE);
     if (hid_active) {
@@ -164,7 +164,7 @@ void swpro_stop_auto_connect(const char *reason)
             ESP_LOGW(TAG, "HID disconnect request failed: %s", esp_err_to_name(err));
         }
     }
-    // HID切断要求が処理中でもACLリンクを確実に切断するため、HCI Disconnectも送信する
+    // Also send HCI Disconnect to guarantee ACL disconnection even when an HID disconnect request is in progress.
     if (g_acl_connected) {
         esp_bd_addr_t host;
         if (swpro_host_snapshot(host)) {
@@ -214,7 +214,7 @@ void swpro_gap_callback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *para
                  g_reconnect_disabled ? 1U : 0U, g_cycle_enabled ? 1U : 0U);
         if (param->acl_conn_cmpl_stat.stat == ESP_BT_STATUS_SUCCESS) {
             g_acl_connected = true;
-            // ACLリンクの通信と競合しないよう、接続完了後はCSB送信を停止する
+            // Stop CSB transmission after connection so it cannot interfere with ACL traffic.
             if (g_wake_tx_active) {
                 g_wake_stop_requested = true;
             }
@@ -245,7 +245,7 @@ void swpro_gap_callback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *para
     case ESP_BT_GAP_ACL_DISCONN_CMPL_STAT_EVT:
         ESP_LOGI(TAG, "ACL disconnection complete: reason=0x%x", param->acl_disconn_cmpl_stat.reason);
         g_acl_connected = false;
-        // HID切断通知より先にACLリンクが切断された場合も、入力レポートの送信を停止する
+        // Stop sending input reports if the ACL link disconnects before an HID disconnect notification.
         if (g_hid_connected) {
             esp_bd_addr_t host;
             if (swpro_host_snapshot(host) &&
@@ -277,7 +277,7 @@ void swpro_gap_callback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *para
         break;
 
     case ESP_BT_GAP_MODE_CHG_EVT:
-        // sniffモードでは送信キューが溢れないよう、レポート周期をsniff間隔に合わせる
+        // In sniff mode, match the report interval to the sniff interval to avoid overflowing the transmit queue.
         if (param->mode_chg.mode == ESP_BT_PM_MD_SNIFF) {
             uint32_t interval_us = (uint32_t)param->mode_chg.interval * 625;
             if (interval_us < SWPRO_REPORT_INTERVAL_DEFAULT_US) {
@@ -342,7 +342,7 @@ void swpro_hidd_event_callback(void *handler_args, esp_event_base_t base, int32_
         if (g_cycle_resume_after_boot) {
             connect_cycle_set(true);
             g_cycle_resume_after_boot = false;
-            // ウェイクアップ命令を送信するまで通常ページを開始しない。起動直後からページが開始されていると、CSBの有効化が拒否されて送信されない。
+            // Do not start normal paging until the wake-up command is sent; paging started at boot would prevent CSB from enabling and transmitting.
             g_reconnect_disabled = true;
             g_cycle_next_us = esp_timer_get_time() + 200000;
         }
@@ -360,7 +360,7 @@ void swpro_hidd_event_callback(void *handler_args, esp_event_base_t base, int32_
                 ESP_LOGI(TAG, "Booted immediately after wake-up; starting normal page");
                 g_next_reconnect_us = esp_timer_get_time() + 50000;
             } else {
-                // esp_hidラッパーがVirtual Cable情報から自動接続を試みるため、手動の再接続は1周期後から始めて衝突を避ける。
+                // The esp_hid wrapper attempts an automatic connection using Virtual Cable information; defer manual reconnection by one cycle to avoid a collision.
                 g_next_reconnect_us =
                     esp_timer_get_time() + RECONNECT_INTERVAL_US;
             }
@@ -415,7 +415,7 @@ void swpro_hidd_event_callback(void *handler_args, esp_event_base_t base, int32_
         break;
 
     case ESP_HIDD_DISCONNECT_EVENT:
-        // SwitchからのHID再接続より先にACL切断を開始するため、ログ出力前に切断を指示する
+        // Start ACL disconnection before logging to ensure disconnection begins before the Switch reconnects HID.
         if (g_acl_connected && !g_cycle_enabled && !g_pairing &&
             !g_stay_disconnected && swpro_host_exists()) {
             esp_bd_addr_t host;
@@ -466,7 +466,7 @@ void swpro_hidd_event_callback(void *handler_args, esp_event_base_t base, int32_
 void try_reconnect(void)
 {
     esp_bd_addr_t host;
-    // ウェイクアップ処理で生成したACLリンク上でもHID接続要求を開始する
+    // Start an HID connection request even on an ACL link established by the wake-up process.
     if (g_reconnect_disabled || !s_hid_started || g_pairing || g_hid_connected ||
         !swpro_host_snapshot(host)) {
         return;
@@ -543,7 +543,7 @@ static void log_status(void)
 
 static void report_bridge_status(void)
 {
-    // 接続試行中も入力ブリッジが読み取れるよう、状態行はWARNレベルで出力する
+    // Log state lines at WARN level so the input bridge can read them during connection attempts.
     esp_bd_addr_t host;
     if (swpro_host_snapshot(host)) {
         ESP_LOGW(TAG, "#S c=%u p=%u y=%u f=%lu h=" ESP_BD_ADDR_STR,
@@ -580,7 +580,7 @@ void swpro_protocol_task(void *argument)
                       !g_wake_page_pending && !g_acl_connected &&
                       !g_hid_connected && g_connect_deadline_us == 0);
 
-        // UART出力がCSB送信周期を乱さないよう、CSB送信中は状態行を出力しない
+        // Suppress state lines during CSB transmission so UART output cannot disrupt the CSB transmission period.
         if (!g_wake_tx_active &&
             (now >= next_bridge_us || last_connected != g_hid_connected ||
              last_cycle != g_cycle_enabled)) {
@@ -601,7 +601,7 @@ void swpro_protocol_task(void *argument)
                 wake_handoff_finished();
             } else if (g_direct_handoff_deadline_us != 0 &&
                        now >= g_direct_handoff_deadline_us) {
-                // Bluetoothホストとリンクマネージャーへ登録済みの可能性があるため、Bluetoothコントローラーを初期化する
+                // Reinitialize the Bluetooth controller because it may still be registered with the Bluetooth host and link manager.
                 ESP_LOGE(TAG, "Rebooting because ACL link registration from wake-up response did not complete");
                 swpro_restart_after_disconnect(0);
             }
@@ -613,7 +613,7 @@ void swpro_protocol_task(void *argument)
                 g_reconnect_paused = false;
                 g_next_reconnect_us = now + (int64_t)RECONNECT_INTERVAL_US;
                 {
-                    // CSB送信とACL切断処理の競合を避けるため、CSB送信の停止後にACL切断を要求する
+                    // Request ACL disconnection after stopping CSB to avoid contention between CSB transmission and ACL disconnection.
                     if (g_wake_tx_active) {
                         g_wake_stop_requested = true;
                         const int64_t stop_until =
@@ -637,9 +637,9 @@ void swpro_protocol_task(void *argument)
                         g_wake_page_pending = true;
                         g_wake_disconnect_tries = 0;
                         g_wake_local_release_tried = false;
-                        // 切断処理中のACLへ再接続しないよう、ACL切断の完了まで通常ページを禁止する
+                        // Disable normal paging until ACL disconnection finishes so it cannot reconnect to an ACL link being torn down.
                         g_reconnect_disabled = true;
-                        // bluedroid内に古いL2CAP接続要求を残さないよう、進行中のHID接続要求を取り消す
+                        // Cancel any pending HID connection request to avoid leaving an old L2CAP request in Bluedroid.
                         if (g_connect_deadline_us != 0) {
                             ESP_LOGI(TAG,
                                      "Wake-up succeeded: cancelling in-progress HID "
@@ -663,7 +663,7 @@ void swpro_protocol_task(void *argument)
             }
         }
 
-        // CSB送信と通常ページの競合を避けるため、CSB送信とACL切断の完了後に通常ページを開始する
+        // Start normal paging only after CSB transmission and ACL disconnection have both completed.
         if (g_wake_page_pending && !g_wake_tx_active &&
             (!g_acl_connected || now >= g_wake_page_deadline_us)) {
             if (g_acl_connected &&

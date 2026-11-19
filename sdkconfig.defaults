@@ -23,9 +23,9 @@ CONFIG_FREERTOS_HZ=1000
 CONFIG_ESPTOOLPY_FLASHSIZE_2MB=y
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
-# 起動を速くする。ブートローダーのログを警告以上だけにする。
-# 115200bpsでは1行あたり6から10ミリ秒かかり、起動からウェイクアップを
-# 始められるまでの1.2秒のうち、実測で96行ぶんがログの出力だった。
-# 試行が1回外れるたびに再起動するので、ここがそのまま待ち時間になる。
+# Speed up boot by limiting bootloader logs to warnings and errors.
+# At 115200 bps each line takes 6-10 ms; measurements found 96 log lines
+# within the 1.2 seconds from boot to the start of wake-up.
+# Each failed attempt causes a restart, so this directly adds to retry delay.
 CONFIG_BOOTLOADER_LOG_LEVEL_WARN=y
 CONFIG_BOOTLOADER_LOG_LEVEL=2

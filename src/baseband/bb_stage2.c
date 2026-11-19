@@ -1,6 +1,6 @@
 /*
- * ROMのCSB受信callbackを受信descriptor解放前に差し替える。
- * 受信ペイロードのSwitchネイティブクロックをACLリンク登録時のクロック差計算に使用する。
+ * Replace the ROM CSB receive callback before it releases the receive descriptor.
+ * Use the Switch native clock in the received payload to calculate the clock difference when registering the ACL link.
  */
 
 #include "baseband.h"
@@ -142,11 +142,11 @@ static void IRAM_ATTR phase2_csb_frame(uint32_t timestamp,
     }
 
     /*
-     * ROMのld_csb_rx_frm_cbk(0x400393a4)がreason=1で実施する後処理を維持する。
-     * - スケジュール要素+0x3EがPHASE2_ELT_STATE_STOPPING(2)の場合は受信終了処理でEAスケジュール要素を解放する。
-     * - 同期検出時はEAスケジュール要素+0x2Cへスケジュール登録時刻timestampを書き込む。
-     * - +0x2Cの登録時刻を基準に、受信枠の予約時間が2*drift+1923usで計算される。
-     * - timestampを更新しない場合は受信枠の予約時間が1933us~3037usまで継続的に拡大する。
+     * Preserve cleanup done by ROM ld_csb_rx_frm_cbk (0x400393a4) with reason=1.
+     * - If schedule element +0x3E is PHASE2_ELT_STATE_STOPPING (2), receive cleanup frees the EA schedule element.
+     * - On synchronization detection, write the registration timestamp to EA schedule element +0x2C.
+     * - Using that +0x2C timestamp, the receive window reservation is computed as 2*drift+1923 us.
+     * - Without updating timestamp, the receive-window reservation continually grows from 1933 to 3037 us.
      */
     if (reason == 1) {
         volatile uint8_t *const schedule_element =
@@ -171,9 +171,9 @@ static void IRAM_ATTR phase2_csb_frame(uint32_t timestamp,
         }
     }
     /*
-     * 次回フレームの予約もphase2_csb_frameからROMのCSB受信スケジューラを呼び出して行う。
-     * - ペイロード取得中はページスキャンリンクを使用する。
-     * - 取得完了後は通常のCSB受信を再開する。
+     * Also schedule the next frame by calling ROM's CSB receive scheduler from phase2_csb_frame.
+     * - Use the page-scan link while capturing the payload.
+     * - Resume ordinary CSB reception after capture completes.
      */
     ((phase2_csb_rx_sched_t)PHASE2_ROM_CSB_RX_SCHED_ADDR)(0);
     if (capture_completed) {
@@ -187,9 +187,9 @@ static void IRAM_ATTR pscan_rx_frame(uint32_t timestamp,
 {
     if (reason == 1) {
         /*
-         * Frame Managerの制約:
-         * - callbackがROMのページスキャンcallback(PHASE2_PSCAN_CALLBACK_ADDR)と一致する場合だけ事前補正を呼び出す。
-         * - 差し替えcallback経由ではROMページスキャンcallbackと同じ補正をpscan_rx_frameで実行する。
+         * Frame Manager constraint:
+         * - Apply the preliminary correction only when the callback equals ROM page-scan callback (PHASE2_PSCAN_CALLBACK_ADDR).
+         * - For the replacement callback, perform the same correction as ROM's page-scan callback in pscan_rx_frame.
          */
         ld_pscan_assert_err_handle();
 
@@ -215,9 +215,9 @@ static void IRAM_ATTR pscan_rx_frame(uint32_t timestamp,
                 g_acl_handoff.pscan_rx_pheader = descriptor[3];
                 if (packet_type == 3) {
                     /*
-                     * ROMのページスキャンフェーズ2はTYPE=1のみを接続成立として扱う。
-                     * - PHASE2_STATUS_FAIL_MASK=0であるDM1のTYPEフィールドをPOLLへ変更する。
-                     * - TYPEをPOLLへ変更したdescriptorを、直後のROMページスキャンcallback呼び出しで処理する。
+                     * ROM's page-scan Phase 2 recognizes only TYPE=1 as an established connection.
+                     * - Change the TYPE field of a DM1 with PHASE2_STATUS_FAIL_MASK=0 to POLL.
+                     * - Pass the descriptor with TYPE changed to POLL to the ROM page-scan callback immediately afterward.
                      */
                     descriptor[2] =
                         (uint16_t)((descriptor_header & ~UINT16_C(0x0078)) |
@@ -341,8 +341,8 @@ static void phase2_capture_start_controller(void *arg)
     g_acl_handoff.prepare_result = ESP_OK;
     g_acl_handoff.prepare_state = ACL_PREPARE_DONE;
     /*
-     * ページスキャンが確保したACL linkとpage_scan_envをフェーズ3直後に到着するTYPE=3受信で再利用する。
-     * - CSB送信中の受信と競合するEAスケジュール要素だけをr_ea_elt_removeで削除する。
+     * Reuse the ACL link and page_scan_env allocated by page scan on TYPE=3 received just after Phase 3.
+     * - Remove only the EA schedule element that conflicts with CSB transmission via r_ea_elt_remove.
      */
     (void)r_ea_elt_remove(page_scan_env);
     page_scan_env[0x3e] = 0;
@@ -470,8 +470,8 @@ bool switch1_phase2_capture_take(esp_err_t *out_result, uint8_t *out_lt_addr,
 
     g_phase2_capture.result = result;
     /*
-     * - UART出力3行分の約20msがフェーズ2応答からフェーズ3送信までの遅延に加わる。
-     * - g_phase2_captureのdesc、control、payload、rx_clk、rx_bitoffは次の取得開始まで変更しない。
+     * - About 20 ms of UART output for three lines adds delay between Phase 2 response and Phase 3 transmission.
+     * - g_phase2_capture fields desc, control, payload, rx_clk, and rx_bitoff are unchanged until the next capture begins.
      */
     s_phase2_report_pending = true;
 

@@ -4,13 +4,13 @@
 #include <stdint.h>
 
 /**
- * @brief Switch ProコントローラーのSPIフラッシュ読み出しを模擬する
+ * @brief Emulate reading the Switch Pro Controller SPI flash
  *
- * @param address 読み出しを開始するSPIアドレス
- * @param length 読み出すバイト数
- * @param out 読み出し結果を書き込むバッファ
- * @note 未定義のアドレスと定義済み領域の終端を超えた範囲は0xFFで埋める
- * @note outがNULLまたはlengthが0の場合は書き込みを実行しない
+ * @param address SPI address at which to begin reading
+ * @param length Number of bytes to read
+ * @param out Output buffer for the read result
+ * @note Fill undefined addresses and ranges beyond the end of a defined region with 0xFF
+ * @note Do not write if out is NULL or length is 0
  */
 void switch_spi_read(uint16_t address, uint8_t length, uint8_t *out);
 

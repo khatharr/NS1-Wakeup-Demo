@@ -1,4 +1,4 @@
-// 入力ブリッジとUART0で通信する。受信フレームはヘッダー0xAB 0xCD、コマンド、長さ、payload、XORチェックサムの順で構成する。
+// Communicate with the input bridge over UART0. Receive frames contain, in order, header 0xAB 0xCD, command, length, payload, and XOR checksum.
 #include "swpro_uart.h"
 
 #include <stdio.h>
@@ -74,7 +74,7 @@ void apply_uart_frame(uint8_t command, const uint8_t *payload, uint8_t length)
     case CMD_PAIR:
     case CMD_CLEAR:
         if (length == 0) {
-            // 接続サイクルを停止してからペアリング情報を削除する
+            // Stop the connection cycle before deleting pairing information.
             g_restart_marker = 0;
             swpro_pairing_reset();
         }
@@ -107,10 +107,10 @@ void apply_uart_frame(uint8_t command, const uint8_t *payload, uint8_t length)
         break;
     case CMD_SET_HOST:
         /*
-         * SwitchのBD_ADDRだけをNVSへ保存し、リンクキーは保存しない。
-         * ペアリング情報を削除したあとでも、BD_ADDRがあればスリープ解除対象を特定できる。
-         * Switchから接続されたときは、ペアリングを再登録できる。
-         * payloadのバイト順は表示順で、先頭が最上位バイトである。
+         * Store only the Switch BD_ADDR in NVS, not the link key.
+         * Even after deleting pairing information, the BD_ADDR identifies the target Switch for wake-up.
+         * Pairing can be registered again when the Switch connects.
+         * The payload bytes are in display order, with the most-significant byte first.
          */
         if (length == 6) {
             esp_bd_addr_t host_address;
@@ -123,7 +123,7 @@ void apply_uart_frame(uint8_t command, const uint8_t *payload, uint8_t length)
         }
         break;
     case CMD_PAGE_NOW:
-        // 起動中のSwitchへ通常のページング手順で再接続する
+        // Reconnect to an awake Switch using the normal paging procedure.
         if (length == 0) {
             ESP_LOGI(TAG, "Starting one HCI page connection");
             g_reconnect_disabled = false;
