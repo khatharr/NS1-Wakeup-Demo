@@ -24,16 +24,16 @@
 
 void wake_try_receive(const uint8_t target[6], uint16_t interval)
 {
-    // 送信スケジュール要素の解放が完了する前にCSB受信を開始すると、ld_csb_tx.cのassertで停止する。
-    // 送信停止後80ms待機して受信を開始する。
+    // Starting CSB reception before the transmit schedule element has been freed triggers an assertion in ld_csb_tx.c.
+    // Wait 80 ms after stopping transmission before starting reception.
     vTaskDelay(pdMS_TO_TICKS(80));
     uint32_t clkn = 0;
     switch1_csb_read_clkn(&clkn);
-    // 応答を受信する時刻は、最後のバーストのクロックからのオフセットで指定する。
-    // 単位はスロット(625us)で、ld_csb_rx_schedが扱うクロックと合わせる。
+    // Specify the expected receive time as an offset from the clock of the last burst.
+    // The unit is a slot (625 us), matching the clock used by ld_csb_rx_sched.
     //
-    // Switchの応答はESP32のバースト開始から2248us後に発生する。
-    // 実際の位相はIntervalで割った余りで決まるので、0~Interval-1の各位相を検索すれば全位相を網羅できる。
+    // SwitchThe Switch responds 2248 us after the ESP32 burst starts.
+    // Actual phase is the remainder after division by Interval, so searching every phase from 0 to Interval-1 covers all possibilities.
     const uint32_t clk = clkn >> 1;
     uint32_t next = (g_wake_last_clkn >> 1) + g_wake_rx_offset;
     while ((int32_t)(next - clk) < 4) {
@@ -46,8 +46,8 @@ void wake_try_receive(const uint8_t target[6], uint16_t interval)
         ESP_LOGE(TAG, "Unable to start CSB receive: %s", esp_err_to_name(err));
         return;
     }
-    // 受信を有効にしたあと、送信スケジュール要素に設定する送信時間を更新する。
-    // 開始時に設定した送信時間が保持されていない場合、送信間隔は3.75msから15msへ延びる。
+    // After enabling reception, update the transmit duration in the transmit schedule element.
+    // If the duration set at startup is not retained, the transmit interval stretches from 3.75 ms to 15 ms.
     switch1_csb_tx_set_duration(
         (uint16_t)((g_wake_length > 183 ? 5 : 3) * 625 -
                    CSB_TX_DECLARED_MARGIN_US));
@@ -57,7 +57,7 @@ void wake_try_receive(const uint8_t target[6], uint16_t interval)
              (unsigned)g_wake_rx_offset, (unsigned)g_wake_last_clkn,
              (unsigned)(g_wake_last_clkn >> 1), (unsigned)next,
              (unsigned)clk);
-    // 応答バーストは318.75ms周期で発生する。1周期では取りこぼすため2周期待機する。
+    // Response bursts repeat every 318.75 ms. Wait two cycles because one can miss responses.
     const int64_t until = esp_timer_get_time() + WAKE_RX_WATCH_US;
     uint32_t received = 0;
     while (esp_timer_get_time() < until) {
@@ -90,11 +90,11 @@ void wake_try_receive(const uint8_t target[6], uint16_t interval)
     switch1_csb_rx_stop(target, interval);
 }
 
-// CSB受信を停止し、最後のバーストのクロックからoffsetスロット後の位置で再開始する。
+// CSBStop CSB reception and restart it offset slots after the clock of the last burst.
 //
-// - Enable=1だけを指定する開始要求は、CSB受信が動作している場合に限り成功する。
-// - スケジュール要素は監視タイムアウトの満了で解放されるため、検索の2回目以降はstatus=0x0cで拒否されていた。
-//   停止を挟む手順にすると、どちらの状態からでも再開始できる。
+// - Enable=1A start request with only Enable=1 succeeds only if CSB reception is already running.
+// - Because the schedule element is freed on supervision timeout, the second and later searches were rejected with status 0x0c.
+//   Inserting a stop step allows restarting from either state.
 static esp_err_t wake_restart_rx(uint16_t interval, uint8_t offset)
 {
     uint32_t clkn = 0;
@@ -109,7 +109,7 @@ static esp_err_t wake_restart_rx(uint16_t interval, uint8_t offset)
     return switch1_csb_rx_restart(interval, next & UINT32_C(0x0fffffff));
 }
 
-// CSB受信を再開始する間隔。HCIを2往復するため、連続して実行しない。
+// CSBDelay between CSB receive restarts; two HCI round trips are required, so do not issue them back-to-back.
 #define RX_RESTART_INTERVAL_US 20000
 
 static void take_phase2_capture(void)
@@ -141,19 +141,19 @@ static void take_phase2_capture(void)
     g_direct_sync_valid = true;
 }
 
-// 1. Switchの応答を待つ。
-// 2. フェーズ3を送信し、送信を停止してページ処理へ移る。
-// 3. 応答の検出は受信descriptorを直接読み出す。
-//    HCIイベントの往復を待つと、応答からフェーズ3までを634us以内に実行できない。
-//    フェーズ3への切り替えは送信タスクが行うため、送信要求フラグを設定して送信完了を待つ。
+// 1. SwitchWait for the Switch response.
+// 2. Transmit Phase 3, stop transmission, and begin paging.
+// 3. Detect responses by directly reading receive descriptors.
+//    HCIWaiting for HCI event round trips cannot meet the 634 us deadline from response to Phase 3.
+//    Because the transmit task switches to Phase 3, set a transmit-request flag and wait for completion.
 static uint32_t wake_roundtrip_run(const uint8_t target[6], uint16_t interval,
                                   uint8_t trigger, uint8_t bursts,
                                   uint32_t timeout_ms, bool page_after,
                                   uint8_t base_offset, uint8_t positions,
                                   uint32_t dwell_ms)
 {
-    // 監視開始時点でdescriptorに入っている受信は、CSB受信の開始処理とその記録の出力の間に成立した古い値の可能性がある。
-    // これを契機にするとフェーズ3の送信時刻が応答受信時刻から大きく遅れるため、現在の値を取り込み、以降の新しい受信だけを契機にする。
+    // Receptions already recorded in descriptors at monitoring start may be stale, occurring between CSB receive startup and logging its state.
+    // Using them would delay Phase 3 far beyond the response timestamp; snapshot current values and trigger only on new receptions.
     switch1_csb_rx_poll_prime();
     switch1_csb_rx_event_reset();
     g_wake_phase3_limit = (bursts != 0) ? bursts : 1;
@@ -172,25 +172,25 @@ static uint32_t wake_roundtrip_run(const uint8_t target[6], uint16_t interval,
     int64_t detected_us = 0;
     const int64_t started = esp_timer_get_time();
     const int64_t until = started + (int64_t)timeout_ms * 1000;
-    // - Switchの応答がESP32の送信時刻に対してどの位相で発生するかは、送信のたびに変化する。
-    // - 受信開始位置を1つに固定すると、成立する試行と成立しない試行が発生する。
-    // - 1回の試行の中で受信位置を順に変更して探索する。
+    // - SwitchThe phase of the Switch response relative to the ESP32 transmission changes on each attempt.
+    // - Using one fixed receive start position makes some attempts succeed and others fail.
+    // - 1Search by changing the receive position sequentially within one attempt.
     const uint8_t position_count = (positions != 0) ? positions : 1;
     uint8_t used_offset = base_offset;
     uint8_t tried = 0;
     uint8_t move_failures = 0;
     bool direct_capture_complete = false;
     int64_t yielded_us = started;
-    // - 送信と受信のスケジュール要素を監視中ずっと読み続ける。
-    // - 受信の優先度は低下させる経路がなく、スケジュールに失敗するたびに増加する。
-    //   優先度が11以上に上昇すると送信を登録できないため、値が11以上か確認する。
+    // - Continually read transmit and receive schedule elements throughout monitoring.
+    // - Receive priority only increases with scheduling failures; there is no path that decreases it.
+    //   When priority reaches 11, transmission cannot be scheduled, so check for priority >= 11.
     switch1_csb_sched_t sched = {0};
     switch1_csb_sched_t rx_live = {0};
     uint8_t rx_priority_max = 0;
     uint8_t tx_priority_max = 0;
     uint32_t sched_samples = 0;
     uint32_t rx_freed_samples = 0;
-    // CSB受信を再開始する。HCIを2往復するため、間隔を置いて実行する。
+    // CSBRestart CSB reception; space out requests because they require two HCI round trips.
     int64_t rx_restart_next_us = 0;
     uint32_t rx_restart_calls = 0;
     uint32_t rx_restart_ok = 0;
@@ -199,7 +199,7 @@ static uint32_t wake_roundtrip_run(const uint8_t target[6], uint16_t interval,
             used_offset = (uint8_t)(base_offset + p);
             const esp_err_t move_err = wake_restart_rx(interval, used_offset);
             if (move_err != ESP_OK) {
-                // 受信開始位置を変更できない場合は現在の位置で受信を継続し、位置探索だけを終了する。
+                // If the receive position cannot be changed, keep receiving at the current position and stop only the position search.
                 ESP_LOGW(TAG, "Wake-up round trip: unable to move the receive position to %u: %s",
                          used_offset, esp_err_to_name(move_err));
                 move_failures++;
@@ -210,19 +210,19 @@ static uint32_t wake_roundtrip_run(const uint8_t target[6], uint16_t interval,
         tried++;
         const int64_t dwell_until =
             esp_timer_get_time() + (int64_t)dwell_ms * 1000;
-        // - descriptorのステータスは、descriptorが次に再利用されるまで保持される。
-        //   受信周期が6スロットであれば4件で一巡するため、15ms保持される。
-        // - 200usごとに確認すれば取りこぼさない。
-        // - 10msごとにCPUの実行権を他のタスクへ移し、他のタスクの実行を妨げないようにする。
+        // - descriptorDescriptor status persists until the descriptor is reused.
+        //   With a six-slot receive period, four descriptors make a 15 ms ring.
+        // - 200usPolling every 200 us prevents missing updates.
+        // - 10msYield CPU time to other tasks every 10 ms to avoid starving them.
         while (esp_timer_get_time() < dwell_until &&
                esp_timer_get_time() < until) {
             switch1_csb_sched_read(&sched);
             sched_samples++;
             if (sched.rx_element == 0) {
                 rx_freed_samples++;
-                // 受信のスケジュール要素は監視タイムアウトの満了で解放される(ld_csb_rx_sched 0x400391f0)。
-                // 解放された状態では受信イベントを1件も取得できない。
-                // 解放された状態では受信イベントを取得できないため、ここでCSB受信を再開始する。
+                // Receive schedule elements are freed when supervision timeout expires (ld_csb_rx_sched 0x400391f0).
+                // No receive events can be captured while the element is freed.
+                // Restart CSB reception here because events cannot be captured after the element is freed.
                 const int64_t now_us = esp_timer_get_time();
                 if (now_us >= rx_restart_next_us) {
                     rx_restart_next_us = now_us + RX_RESTART_INTERVAL_US;
@@ -248,9 +248,9 @@ static uint32_t wake_roundtrip_run(const uint8_t target[6], uint16_t interval,
                 g_direct_clock_delta_valid && g_direct_sync_valid &&
                 g_direct_lt_addr >= 1 && g_direct_lt_addr <= 7;
             const bool direct_trigger = direct_response && trigger <= 1;
-            // - descriptorのステータスは受信状態の記録だけに使用する。
-            // - フラグはHCIイベントの件数に基づいて設定する。
-            //   連続して成立した受信はどれも同じステータスを書き込むので、値の変化では数えられない。
+            // - descriptorUse descriptor status only for recording the reception state.
+            // - Set the flag using the HCI event count.
+            //   Consecutive successful receptions store the same status, so counting status changes does not work.
             uint16_t status = 0;
             uint16_t header = 0;
             uint16_t pheader = 0;
@@ -261,9 +261,9 @@ static uint32_t wake_roundtrip_run(const uint8_t target[6], uint16_t interval,
                     first_pheader = pheader;
                 }
             }
-            // フラグはステータスが検査条件を満たす値へ変わった時点で設定する。
-            // 応答バースト列の先頭では6801から6800への変化が必ず発生する。
-            // HCIイベントのclockフィールドは受信予定時刻で到着時刻ではないため、位置決めには使えない。
+            // Set the flag when status changes to a value that passes the validity checks.
+            // The beginning of a response burst train always changes from 6801 to 6800.
+            // HCIThe HCI event clock field is the scheduled receive time, not the arrival time, so it cannot be used for positioning.
             if ((status != 0 || direct_trigger) &&
                 !g_wake_phase3_pending) {
                 if (first_us == 0) {
@@ -272,10 +272,10 @@ static uint32_t wake_roundtrip_run(const uint8_t target[6], uint16_t interval,
                 if (direct_trigger ||
                     (g_direct_clock_delta_valid &&
                      switch1_csb_rx_event_count() + 1 >= trigger)) {
-                    // - CSB受信が有効な状態では送信間隔を変更できない。
-                    //   受信イベントが送信候補時刻を6スロット分予約するため、送信周期を6の倍数以外に設定するとスケジュール登録に失敗し、送信が停止する。
-                    // - 応答を受信した時点でCSB受信を停止する。
-                    // - ハードウェアが測定した受信時刻は、CSB受信の停止処理を実行する前に読み出す。
+                    // - CSBThe transmit interval cannot be changed while CSB reception is enabled.
+                    //   Receive events reserve six slots around candidate transmit times; choosing a transmit period not divisible by six makes scheduling fail and stops transmission.
+                    // - Stop CSB reception as soon as the response is received.
+                    // - Read the hardware-measured receive time before stopping CSB reception.
                     uint32_t rx_clk = g_direct_rx_clk;
                     uint16_t rx_bitoff = g_direct_rx_bitoff;
                     uint16_t rx_raw = g_direct_rx_bitoff;
@@ -294,21 +294,21 @@ static uint32_t wake_roundtrip_run(const uint8_t target[6], uint16_t interval,
                     uint16_t tx_interval_now = 0;
                     switch1_csb_tx_read_schedule(&tx_slot, &tx_interval_now);
                     const int64_t before = esp_timer_get_time();
-                    // 停止要求がstatus=0x0Cで拒否されると、CSB受信が有効な状態でフェーズ3へ遷移する。
-                    // ここで再度停止するとHCIの往復に17ms掛かり、フェーズ3の送信時刻が応答バーストの時刻からずれるため、停止結果だけを記録して処理を続ける。
-                    // CSB受信の停止処理は次の試行のswitch1_csb_rx_startが実行する。
+                    // If stop is rejected with status=0x0C, transition to Phase 3 while CSB reception is still active.
+                    // Stopping again would cost 17 ms in HCI round trips and shift Phase 3 away from the response burst; just record the result and continue.
+                    // CSBThe next attempt's switch1_csb_rx_start handles stopping CSB reception.
                     g_wake_rx_stop_err = switch1_csb_rx_stop(target,
                                                                  interval);
                     detected_us = esp_timer_get_time();
-                    // - 応答の時刻を取得できたら、その634us後へフェーズ3を設定する。
-                    // - スロット単位の位置は送信の周期で、スロット内の位置はcontrol structure +0x02で決める。
-                    // - 応答は6スロットごとに続くので、次の送信の4スロット後以降になるまで6の倍数を加算する。
+                    // - If a response timestamp was captured, schedule Phase 3 at timestamp + 634 us.
+                    // - The transmit period determines the slot, and control structure +0x02 determines the position within the slot.
+                    // - Responses repeat every six slots, so add multiples of six until the target is at least four slots after the next transmission.
                     uint32_t target_slot = 0;
                     uint16_t target_bitoff = 0;
                     const bool phase3_target_available =
                         have_sync && tx_interval_now == g_wake_interval;
                     if (phase3_target_available) {
-                        // 実測値に基づいて補正を行う
+                        // Apply correction based on measured values.
                         const uint32_t total = rx_bitoff +
                                                WAKE_PHASE3_TARGET_US -
                                                WAKE_PHASE3_BIAS_US;
@@ -319,8 +319,8 @@ static uint32_t wake_roundtrip_run(const uint8_t target[6], uint16_t interval,
                         g_wake_phase3_bitoff = target_bitoff;
                     }
                     g_wake_rx_detect_us = detected_us;
-                    // フラグを設定する前に、フェーズ3の本体を共有メモリへ書き込む。
-                    // 書き込み内容は次のバーストから送信に反映されるため、送信タスク側で書き込むと反映が1バースト遅れる。
+                    // Write the Phase 3 body to shared memory before setting the flag.
+                    // Changes to shared memory take effect starting with the next burst; writing from the transmit task would delay application by one burst.
                     if (g_wake_phase3_raw &&
                         switch1_csb_write_payload_at(
                             g_wake_payload_offset,
@@ -331,9 +331,9 @@ static uint32_t wake_roundtrip_run(const uint8_t target[6], uint16_t interval,
                     __asm__ __volatile__("memw" ::: "memory");
                     g_wake_phase3_pending = true;
                     __asm__ __volatile__("memw" ::: "memory");
-                    // フラグを設定してから本体を再書き込みする。
-                    // 上の書き込みとフラグ設定の間に送信タスクがWAIT_GAP状態を実行すると、フラグ設定がまだ反映されていないためフェーズ1の本体で上書きされる。
-                    // フラグ設定後に本体を再書き込みすることで、どちらの実行順序でも正しい内容を共有メモリへ保持できる。
+                    // Set the flag, then rewrite the body.
+                    // If the transmit task executes WAIT_GAP between the write and flag setting, it overwrites the body with Phase 1 data because the flag has not propagated yet.
+                    // Rewriting after setting the flag ensures shared memory contains the correct body in either task interleaving.
                     if (g_wake_phase3_raw &&
                         switch1_csb_write_payload_at(
                             g_wake_payload_offset,
@@ -343,9 +343,9 @@ static uint32_t wake_roundtrip_run(const uint8_t target[6], uint16_t interval,
                     }
                     direct_capture_complete =
                         direct_trigger && g_wake_phase3_rounds == 1;
-                    // 出力はフラグ設定後に行う。
-                    // 115200bpsのUARTは1行に10msほど掛かり、フラグを設定する前に出力するとその時間がすべて応答からフェーズ3までの時間に加算される。
-                    // 送信タスクは別のcoreで動作しているため、ここでログを出力してもフェーズ3の送信タスクは待機しない。
+                    // Log only after setting the flag.
+                    // 115200bpsUART output at 115200 bps takes about 10 ms per line, which would all add to the response-to-Phase-3 delay if logged before setting the flag.
+                    // The transmit task runs on a different core, so logging here does not block Phase 3 transmission.
                     ESP_LOGI(TAG,
                              "  Response detected; stopping receive (%lldus) "
                              "sync=%s clk=%08x in-slot=%uus(raw %u) "
@@ -365,7 +365,7 @@ static uint32_t wake_roundtrip_run(const uint8_t target[6], uint16_t interval,
             if (direct_response && hits == 0) {
                 hits = 1;
             }
-            // ESP32が本文と受信時刻を取得したら、その値でフェーズ3を送信するまで受信位置を変更しない。
+            // ESP32Once the ESP32 has captured the body and receive time, do not move the receive position until Phase 3 uses those values.
             if (direct_capture_complete || g_wake_phase3_done_us != 0) {
                 break;
             }
@@ -382,9 +382,9 @@ static uint32_t wake_roundtrip_run(const uint8_t target[6], uint16_t interval,
             break;
         }
     }
-    // フラグを設定したあとは、フェーズ3の送信が完了するまで待つ。
-    // 送信時刻は送信タスクが決めるので、この関数は待機だけを行う。
-    // 送信完了まで400msの猶予を設ける。送信イベントは受信と競合してスケジューラにより省略されることがあり、次のバーストまで数十msかかる場合がある。
+    // After setting the flag, wait for Phase 3 transmission to complete.
+    // The transmit task selects the transmission time, so this function only waits.
+    // Allow 400 ms for completion; transmit events can be skipped by the scheduler due to reception conflicts, delaying the next burst by tens of ms.
     while (g_wake_phase3_pending && esp_timer_get_time() < until + 400000) {
         const int64_t done = g_wake_phase3_done_us;
         if (done != 0 && esp_timer_get_time() >= done) {
@@ -392,9 +392,9 @@ static uint32_t wake_roundtrip_run(const uint8_t target[6], uint16_t interval,
         }
         vTaskDelay(1);
     }
-    // ROMコールバックへ復帰する前にCSB受信を停止する。
-    // フェーズ2の本文取得はページスキャンが確保したlink 0の受信コンテキストを使用するため、そのリンクの完了descriptorは解放されない。
-    // 完了descriptorを解放せずにROM callbackへ復帰すると、activityが13でないことを検出してassertで停止する。
+    // ROMStop CSB reception before returning to the ROM callback.
+    // Capturing the Phase 2 body uses the receive context of link 0 allocated by page scan, so its completed descriptor is not freed.
+    // Returning to the ROM callback without freeing the completed descriptor causes an assertion because activity is not 13.
     if (switch1_csb_rx_is_active()) {
         switch1_csb_rx_stop(target, interval);
     }
@@ -406,15 +406,15 @@ static uint32_t wake_roundtrip_run(const uint8_t target[6], uint16_t interval,
     uint8_t direct_link = 0xff;
     const int64_t sent_us = g_wake_phase3_done_us;
 
-    // フェーズ3の送信後は、ログ出力より先にページ処理を開始する。
-    // ログをここより前に出力すると、115200bpsのUARTが1行あたり9msほど掛かるため、数行で100ms以上遅延する。
-    // ページ処理を開始したあとに記録を出力する。
+    // After Phase 3, start paging before logging.
+    // Logging earlier costs about 9 ms per line at 115200 bps and can delay paging by more than 100 ms across several lines.
+    // Print the saved records after starting paging.
     int64_t t_page = 0;
     int64_t t_rx_stopped = 0;
     int64_t t_tx_stopped = 0;
     if (page_after && sent_us != 0) {
         const int64_t t0 = esp_timer_get_time();
-        // 受信は応答を検出した時点で停止している。ここで再度停止するとHCIの往復に17ms追加で必要になる。
+        // Reception was stopped when the response was detected; stopping again would add 17 ms of HCI round trips.
         if (!g_wake_phase3_pending) {
             switch1_csb_rx_stop(target, interval);
         }
@@ -439,8 +439,8 @@ static uint32_t wake_roundtrip_run(const uint8_t target[6], uint16_t interval,
                 g_direct_handoff_deadline_us = 0;
             }
         }
-        // ACLの直接接続開始が成立していればページ処理を開始しない。
-        // ページ処理はdeadlineが満了したときに使用する代替経路である。
+        // ACLDo not start paging if direct ACL connection initialization succeeded.
+        // Paging is only a fallback used when the deadline expires.
         if (!direct_path) {
             const int64_t page_not_before = sent_us + 20000;
             while (esp_timer_get_time() < page_not_before) {
@@ -553,13 +553,13 @@ static uint32_t wake_roundtrip_run(const uint8_t target[6], uint16_t interval,
     if (!page_after) {
         return hits;
     }
-    // フェーズ3の送信完了時点で送信タスクは停止する。
-    // 送信タスクが動作中の場合だけ停止要求を設定する。
+    // The transmit task stops when Phase 3 transmission completes.
+    // Request a stop only if the transmit task is still active.
     if (g_wake_tx_active) {
         g_wake_stop_requested = true;
     }
-    // 送信タスクが停止するまで待つ。
-    // g_wake_tx_activeは停止完了の確認直後にfalseに変わるため、その後の記録出力を待機する必要はない。
+    // Wait until the transmit task stops.
+    // g_wake_tx_activeg_wake_tx_active becomes false immediately after stop confirmation, so there is no need to wait for subsequent logging.
     const int64_t stop_until = esp_timer_get_time() + 3000000;
     while (g_wake_tx_active && esp_timer_get_time() < stop_until) {
         vTaskDelay(pdMS_TO_TICKS(1));
@@ -568,12 +568,12 @@ static uint32_t wake_roundtrip_run(const uint8_t target[6], uint16_t interval,
         ESP_LOGW(TAG, "Wake-up round trip: transmission task did not stop");
         return hits;
     }
-    // 次の試行が残っている場合は、ここでページ処理を開始しない。
-    // ページ処理が進行中だとLT_ADDRの予約とCSBの有効化がstatus 0x0bで失敗し、次の試行が受信失敗になる。
-    // 規定回数の試行を完了した後、CYCLE_PAGE_WAITがページ処理を開始する。
+    // Do not start paging here while further attempts remain.
+    // Active paging would cause LT_ADDR reservation and CSB enabling to fail with status 0x0b, making the next attempt fail to receive.
+    // After the specified attempt count, CYCLE_PAGE_WAIT starts paging.
     if (g_cycle_enabled && g_cycle_wake_tries < CYCLE_WAKE_TRIES) {
-        // 定期の再接続処理もページ処理を開始しないようにする。
-        // CMD_CSB_RXのページ指定により再接続禁止が解除されるため、ここで再設定しないと数百ms後にページ処理が開始される。
+        // Also prevent periodic reconnection from starting paging.
+        // CMD_CSB_RXCMD_CSB_RX paging options clear the reconnection-disable flag, so restore it here or paging starts a few hundred ms later.
         g_reconnect_disabled = true;
         g_reconnect_paused = true;
         ESP_LOGI(TAG,
@@ -586,11 +586,11 @@ static uint32_t wake_roundtrip_run(const uint8_t target[6], uint16_t interval,
     return hits;
 }
 
-// UARTのCMD_CSB_RXを処理する。
+// UARTHandle UART command CMD_CSB_RX.
 //
-// 1. CSB受信を開始する。
-// 2. Switchの応答を検出したらフェーズ3の送信とACL直接接続開始へ移る。
-// 3. 応答の検出からフェーズ3の送信までは送信タスクが行うため、受信設定と受信状態を監視する。
+// 1. CSBStart CSB reception.
+// 2. SwitchOn detecting a Switch response, move to Phase 3 transmission and direct ACL link initialization.
+// 3. Monitor reception settings and status because the transmit task handles the response-to-Phase-3 transition.
 void wake_cmd_receive(const uint8_t *payload, uint8_t length)
 {
     if (length < 1 || length > 23) {
@@ -639,10 +639,10 @@ void wake_cmd_receive(const uint8_t *payload, uint8_t length)
         if (length >= 23 && payload[22] >= 1 && payload[22] <= 7) {
             g_direct_lt_addr = payload[22];
         }
-        // 開始時刻はスロット単位で渡す。
-        // ld_csb_rx_schedがIntervalの剰余から受信位相を算出するためである。
-        // ウェイクアップ送信中は最後のバーストのクロックからのオフセットで指定する。
-        // 応答は送信バーストに追随するため、この指定がないと受信位置を一致させられない。
+        // Pass the receive start time in slots.
+        // ld_csb_rx_schedld_csb_rx_sched derives receive phase from the remainder modulo Interval.
+        // During wake-up transmission, specify an offset from the last burst's clock.
+        // Responses track transmit bursts, so matching receive position is impossible without this offset.
         const uint32_t clk = clkn >> 1;
         uint32_t next = (clk + 16u) & UINT32_C(0x0fffffff);
         uint32_t offset = 0;
@@ -651,11 +651,11 @@ void wake_cmd_receive(const uint8_t *payload, uint8_t length)
             while ((int32_t)(next - clk) < 4) {
                 next += interval;
             }
-            // payload[3]が0でなければ、白色化の初期値が0になるようにピコネットクロックを移動する。
-            // 初期値はスロット単位のクロックの下位6ビットなので、64の倍数へ合わせる。
-            // 位相はClock_Offsetを含めて決まるため、受信の時刻は変化しない。
+            // payload[3]If payload[3] is nonzero, shift the piconet clock so the whitening seed becomes zero.
+            // The seed is the low six bits of the slot clock, so align to a multiple of 64.
+            // Receive timing is unchanged because phase includes Clock_Offset.
             if (length >= 4 && payload[3] != 0) {
-                // payload[6]は補正値である。オフセット計算が一致しない場合に備えて、0~63の値を探索できるようにする。
+                // payload[6]payload[6] is a correction term; permit searching values 0-63 if the calculated offset does not match.
                 const uint32_t correction =
                     (length >= 7) ? (payload[6] & 0x3Fu) : 0u;
                 offset = (64u - (next & 0x3Fu) + correction) & 0x3Fu;
@@ -675,8 +675,8 @@ void wake_cmd_receive(const uint8_t *payload, uint8_t length)
         err = switch1_csb_rx_start(host, switch1_wakeup_parity34(host),
                                    interval, offset, next, 0);
         if (err == ESP_OK) {
-            // CSB受信のスケジュール要素を開始直後に読み出す。
-            // ld_csb_rx_sched(0x400391f0)は経過が監視タイムアウトに達すると要素を解放するため、基準クロックが分かればいつ解放されるかを計算できる。
+            // CSBRead the CSB receive schedule element immediately after starting.
+            // ld_csb_rx_sched(0x400391f0)ld_csb_rx_sched (0x400391f0) frees the element once elapsed time reaches supervision timeout; knowing the reference clock lets us calculate when.
             switch1_csb_sched_t started_sched;
             switch1_csb_sched_read(&started_sched);
             uint32_t clkn_now = 0;
@@ -695,24 +695,24 @@ void wake_cmd_receive(const uint8_t *payload, uint8_t length)
                      (unsigned)(clkn_now >> 1));
         }
         if (err != ESP_OK) {
-            // 受信を開始できなければwake_roundtrip_runは実行されないため、フェーズ2の本文取得をここでキャンセルする。
-            // キャプチャ状態を解除しないと、次の試行のswitch1_phase2_capture_startがESP_ERR_INVALID_STATEで拒否され、再起動まで取得できない。
+            // If reception cannot start, wake_roundtrip_run is never called; cancel Phase 2 body capture here.
+            // Without clearing capture state, the next attempt's switch1_phase2_capture_start fails with ESP_ERR_INVALID_STATE until reboot.
             switch1_phase2_capture_cancel();
         }
-        // 受信を有効にしたあと、送信スケジュール要素に設定する送信時間を実際の送信時間へ更新する。
-        // 開始時に設定した送信時間が保持されないと、送信間隔は3.75msから15msへ延びる。
+        // After enabling reception, update the transmit schedule element's duration to the actual transmit duration.
+        // If the duration configured at startup is lost, the transmit interval stretches from 3.75 ms to 15 ms.
         if (err == ESP_OK) {
             switch1_csb_tx_set_duration(
                 (uint16_t)((g_wake_length > 183 ? 5 : 3) * 625 -
                            CSB_TX_DECLARED_MARGIN_US));
         }
-        // payload[4]でLT_ADDRを指定する。省略時は0を指定する。
-        // 0はSwitchの応答に合わせた値だが放送用の番号でもあるため、受信側が不正として扱っていないかを比較できるようにする。
+        // payload[4]payload[4] specifies LT_ADDR; default to 0 if omitted.
+        // 00 matches the Switch response but is also a broadcast address, so make it configurable to test whether the receiver rejects it.
         if (err == ESP_OK && length >= 5) {
             switch1_csb_rx_write_ltaddr(payload[4]);
         }
-        // payload[3]が2~28であれば、CSB受信のフレームフォーマットとして扱う。
-        // ACLのフレームフォーマットにすると受信ペイロードが保存される経路に入る。
+        // payload[3]Values 2-28 in payload[3] are treated as CSB receive frame formats.
+        // ACLACL frame formats use the processing path that stores received payloads.
         if (err == ESP_OK && length >= 4 && payload[3] >= 2) {
             switch1_csb_rx_set_format(payload[3]);
             ESP_LOGI(TAG, "CSB receive frame format set to %u",
@@ -721,22 +721,22 @@ void wake_cmd_receive(const uint8_t *payload, uint8_t length)
     } else {
         err = switch1_csb_rx_stop(host, interval);
     }
-    // control structureのスナップショットはここで取得するが、出力は監視を終えてから行う。
-    // 受信を有効にした直後にSwitchの応答を受信することがあり、UARTの3行ぶん(25msほど)が応答の検出を遅らせて、フェーズ3が応答バーストの時刻からずれる。
+    // control structureCapture the control-structure snapshot here, but do not print it until after monitoring.
+    // A Switch response can arrive immediately after enabling reception; printing three UART lines (about 25 ms) would delay detection and shift Phase 3 away from its response burst.
     switch1_csb_rx_dump(0, 8, after);
 
     if (payload[0] != 0 && err == ESP_OK) {
-        // 受信の有無は受信descriptorを直接読み出す。
-        // HCIイベントが生成されない場合も検出でき、UART経由の読み出しと異なり受信状態を取りこぼさない。
-        // 送信中にも実行できるよう、待機せずにポーリングする。
-        // payload[5]は監視する時間で10ms単位。省略時は600ms。
+        // Detect reception by reading descriptors directly.
+        // HCIThis detects reception even when no HCI event is produced, and unlike UART-based reads does not miss state transitions.
+        // Poll without waiting so this can also run during transmission.
+        // payload[5]payload[5] sets monitoring time in 10 ms units; default is 600 ms.
         const uint32_t watch_ms =
             (length >= 6 && payload[5] != 0)
                 ? (uint32_t)payload[5] * 10u
                 : 600u;
-        // payload[7]が0でなければ、応答をその件数だけ検出した時点でフェーズ3へ移行し、送信を停止してページ処理を開始する。
-        // 0であれば受信状態だけを記録し、送信設定は変更しない。
-        // payload[8]はフェーズ3のバースト数、payload[9]はページ処理の有無、payload[10]は受信位置の箇所数、payload[11]は1箇所を保持する時間で10ms単位である。
+        // payload[7]If payload[7] is nonzero, after that many responses switch to Phase 3, stop transmitting, and start paging.
+        // 0If zero, record reception state only and leave transmit settings unchanged.
+        // payload[8]payload[8] is the Phase 3 burst count; [9] enables paging; [10] is the number of receive positions; [11] is the dwell time at each position, in 10 ms units.
         const uint8_t trigger = (length >= 8) ? payload[7] : 0;
         if (trigger != 0 && g_wake_started) {
             const uint8_t bursts =
@@ -750,24 +750,24 @@ void wake_cmd_receive(const uint8_t *payload, uint8_t length)
                 (length >= 12 && payload[11] != 0)
                     ? (uint32_t)payload[11] * 10u
                     : watch_ms;
-            // payload[12]はフェーズ3を送信している間の送信間隔で、スロット単位である。
-            // 送信の周期6と互いに素な7にすると、応答時刻との差が1バーストごとに1スロットずつ変化する。
+            // payload[12]payload[12] is the transmit interval during Phase 3, in slots.
+            // Choosing seven, coprime with the Phase 1 period of six, shifts the response-relative timing by one slot per burst.
             g_wake_phase3_step =
                 (length >= 13 && payload[12] != 0) ? payload[12] : 7;
-            // payload[13]は位置の検索を繰り返す回数
+            // payload[13]payload[13] is the number of position-search repetitions.
             g_wake_phase3_rounds =
                 (length >= 14 && payload[13] != 0) ? payload[13] : 1;
             g_wake_phase3_rounds_done = 0;
-            // payload[14]はスロット境界からのオフセットで、4us単位
+            // payload[14]payload[14] is the slot-boundary offset in units of 4 us.
             g_wake_phase3_bitoff =
                 (length >= 15) ? (uint16_t)payload[14] * 4u : 0u;
-            // payload[15]は応答の時刻に対するスロット単位の補正
+            // payload[15]payload[15] is a slot-based correction relative to the response timestamp.
             g_wake_phase3_target_slot_adjustment =
                 (length >= 16) ? payload[15] : 0;
-            // payload[16]はフェーズ1を停止してからフェーズ3を送信するまでのスロット数
+            // payload[16]payload[16] is the number of slots between stopping Phase 1 and transmitting Phase 3.
             g_wake_phase3_gap =
                 (length >= 17 && payload[16] != 0) ? payload[16] : 4;
-            // payload[17]は応答を受信してからフェーズ3へ移るまでフェーズ1を最大速度で送信し続ける時間で、10ms単位である。
+            // payload[17]payload[17] is the maximum time Phase 1 keeps transmitting at full speed after response reception before switching to Phase 3, in 10 ms units.
             g_wake_phase3_hold_ms =
                 (length >= 18) ? (uint16_t)payload[17] * 10u : 0u;
             wake_roundtrip_run(host, interval, trigger, bursts, watch_ms,
