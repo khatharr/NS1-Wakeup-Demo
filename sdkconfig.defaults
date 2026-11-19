@@ -24,7 +24,7 @@ CONFIG_ESPTOOLPY_FLASHSIZE_2MB=y
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 # Speed up boot by limiting bootloader logs to warnings and errors.
-# 115200bpsAt 115200 bps each line takes 6-10 ms; measurements found 96 log lines
+# At 115200 bps each line takes 6-10 ms; measurements found 96 log lines
 # within the 1.2 seconds from boot to the start of wake-up.
 # Each failed attempt causes a restart, so this directly adds to retry delay.
 CONFIG_BOOTLOADER_LOG_LEVEL_WARN=y
