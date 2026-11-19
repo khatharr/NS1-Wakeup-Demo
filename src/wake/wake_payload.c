@@ -98,7 +98,7 @@ void wake_build_phase3(const uint8_t addr[6],
     /*
      * The wake-up access-code exchange is unwhitened; apply the same cancellation to Phase 3 as to Phase 1 so the over-the-air payload has its original, unwhitened bits.
      *
-     * - DM1DM1 has an eight-bit payload header.
+     * - DM1 has an eight-bit payload header.
      * - The number of bits to skip differs from DH3 and DH5.
      */
     for (uint8_t i = 0; i < WHITEN_VARIANT_COUNT; ++i) {

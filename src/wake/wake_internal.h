@@ -18,7 +18,7 @@ typedef enum {
     WAKE_BURST_WAIT_GAP,
 } wake_state_t;
 
-// 64At a 64-slot interval, piconet CLK[6:1] stays constant, so the whitening seed does not change.
+// At a 64-slot interval, piconet CLK[6:1] stays constant, so the whitening seed does not change.
 #define WAKE_CSB_RAW_INTERVAL UINT16_C(0x0040)
 #define WAKE_SECONDS_MIN UINT8_C(1)
 #define WAKE_SECONDS_MAX UINT8_C(30)
@@ -27,30 +27,30 @@ typedef enum {
 #define WAKE_CHANNEL_MAX UINT8_C(78)
 #define WAKE_VARIANT_START_MAX UINT8_C(31)
 #define WAKE_VARIANT_START_NONE UINT8_C(0xFF)
-// 0xFE0xFE selects sequential switching through whitening seeds 0-31.
+// 0xFE selects sequential switching through whitening seeds 0-31.
 #define WAKE_VARIANT_SWEEP UINT8_C(0xFE)
 #define WAKE_SWEEP_STEP_US UINT32_C(750000)
-// descriptorTo transmit four slots after descriptor detection, set the receive start time to 15 CLKN after the final burst.
+// To transmit four slots after descriptor detection, set the receive start time to 15 CLKN after the final burst.
 #define WAKE_RX_OFFSET_DEFAULT UINT8_C(15)
-// 318.75msMonitor two cycles of the 318.75 ms response-burst period.
+// Monitor two cycles of the 318.75 ms response-burst period.
 #define WAKE_RX_WATCH_US INT64_C(700000)
-// CSBShorten the reserved transmit event duration by 250 us so CSB transmit and receive can be scheduled together.
+// Shorten the reserved transmit event duration by 250 us so CSB transmit and receive can be scheduled together.
 #define CSB_TX_DECLARED_MARGIN_US 250
 #define WAKE_LEAD_SLOTS_DEFAULT UINT8_C(4)
 #define WAKE_LEAD_SLOTS_MAX UINT8_C(32)
 // TYPE=3(DM1)、FLOW=1、ARQN=0、SEQN=1
 #define WAKE_PHASE3_HEADER UINT16_C(0x0298)
 #define WAKE_PHASE3_LLID_DEFAULT UINT8_C(2)
-// control structure +0x00Frame format in bits 0-4 at control structure +0x00; with format 24, FLOW, ARQN, and SEQN are zero.
+// Frame format in bits 0-4 at control structure +0x00; with format 24, FLOW, ARQN, and SEQN are zero.
 #define WAKE_PHASE3_FRAME_FORMAT 24
-// DM1Add the 72 us DM1 access code, 54 us header, and half the descriptor polling period (100 us).
+// Add the 72 us DM1 access code, 54 us header, and half the descriptor polling period (100 us).
 #define WAKE_RX_DETECT_LATENCY_US 226
-// SwitchPhase 3 transmit time relative to the beginning of the Switch response.
+// Phase 3 transmit time relative to the beginning of the Switch response.
 #define WAKE_PHASE3_TARGET_US 634
 #define WAKE_PHASE3_BIAS_US 25
 // Prevent Phase 3 and the immediately following page-scan reception from overlapping in the scheduler.
 #define WAKE_PHASE3_AIRTIME_US 400
-// CSBDelay the next transmission by one second to prevent Phase 1 from restarting before CSB is stopped.
+// Delay the next transmission by one second to prevent Phase 1 from restarting before CSB is stopped.
 #define WAKE_PHASE3_QUIET_SLOTS UINT16_C(1600)
 #define WAKE_CLOCK_SAMPLES 12
 

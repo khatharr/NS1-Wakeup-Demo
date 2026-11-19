@@ -11,7 +11,7 @@ extern int64_t g_cycle_next_us;
 
 /**
  * @brief Start or stop connection-cycle processing
- * @param enabled truetrue starts, false stops
+ * @param enabled true starts, false stops
  */
 void connect_cycle_set(bool enabled);
 
@@ -19,7 +19,7 @@ void connect_cycle_set(bool enabled);
  * @brief Advance connection-cycle processing by one stage
  * @param now Current time in microseconds
  *
- * 1msCall once every 1 ms.
+ * Call once every 1 ms.
  */
 void connect_cycle_step(int64_t now);
 
@@ -27,7 +27,7 @@ void connect_cycle_step(int64_t now);
  * @brief Perform a restart scheduled while connection processing is stopped
  * @param now Current time in microseconds
  *
- * HIDRestart only after HID is disconnected and no other connection operation is active.
+ * Restart only after HID is disconnected and no other connection operation is active.
  * Used to begin the next attempt from the immediate post-boot state.
  */
 void idle_restart_step(int64_t now);
@@ -54,7 +54,7 @@ extern volatile bool g_page_right_after_boot;
 extern volatile bool g_cycle_resume_after_boot;
 
 /**
- * @brief HIDDelay between HID disconnection and restart
+ * @brief Delay between HID disconnection and restart
  */
 #define IDLE_RESTART_DELAY_US INT64_C(3000000)
 
