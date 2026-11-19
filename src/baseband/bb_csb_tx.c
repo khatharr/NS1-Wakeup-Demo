@@ -116,8 +116,8 @@ static void csb_set_channel(uint8_t channel)
 }
 
 /*
- * - ROMWrite the descriptor fields configured at this stage into the descriptor ROM recreates for every event.
- * - HEC、CRC、HEC, CRC, FEC, and whitening are generated later by baseband hardware.
+ * - Write the descriptor fields configured at this stage into the descriptor ROM recreates for every event.
+ * - HEC, CRC, FEC, and whitening are generated later by baseband hardware.
  */
 esp_err_t csb_apply(void)
 {
@@ -184,11 +184,11 @@ esp_err_t csb_apply_wait(void)
 }
 
 /*
- * 1. ROMAs with ROM's r_ld_read_clock, set bit 31 to request sampling.
- * 2. bit31Wait until bit 31 becomes 0.
+ * 1. As with ROM's r_ld_read_clock, set bit 31 to request sampling.
+ * 2. Wait until bit 31 becomes 0.
  * 3. Read the lower 28 bits.
  *
- * ROMROM returns the native clock rounded to units of 625 us.
+ * ROM returns the native clock rounded to units of 625 us.
  * The whitening seed is determined by CLK[6:1], so return CLKN without rounding here.
  */
 bool switch1_csb_read_clkn(uint32_t *out_clkn)
@@ -258,8 +258,8 @@ esp_err_t switch1_csb_write_payload_at(uint16_t payload_offset,
 }
 
 /*
- * - ld_csb_tx_env(0x3ffb827c)ld_csb_tx_env (0x3ffb827c) holds the head address.
- * - ld_csb_tx_sched(0x40039c1c)For each burst, ld_csb_tx_sched (0x40039c1c) adds element +0x30 (period) to element +0x08 (next transmission time) and reschedules it.
+ * - ld_csb_tx_env (0x3ffb827c) holds the head address.
+ * - For each burst, ld_csb_tx_sched (0x40039c1c) adds element +0x30 (period) to element +0x08 (next transmission time) and reschedules it.
  * - Because the time is not recalculated from the clock, changing the period once leaves all later transmission times shifted by that amount.
  * - Time is measured in 625 us slots.
  */
@@ -278,8 +278,8 @@ esp_err_t switch1_csb_write_payload_at(uint16_t payload_offset,
  * Field present only in receive elements.
  * The layout differs from transmit elements.
  *
- * - +0x36: +0x36: receive interval (slots). A transmit element stores its period at +0x30, but a receive element stores the clock offset there.
- * - +0x3E: +0x3E: state. 0 = stopped; 1 = running; 2 = stop request pending.
+ * - +0x36: receive interval (slots). A transmit element stores its period at +0x30, but a receive element stores the clock offset there.
+ * - +0x3E: state. 0 = stopped; 1 = running; 2 = stop request pending.
  */
 #define CSB_RX_EVT_INTERVAL 0x36
 #define CSB_RX_EVT_STATE 0x3E
@@ -288,7 +288,7 @@ esp_err_t switch1_csb_write_payload_at(uint16_t payload_offset,
 
 /*
  * - Elements are allocated 4-byte aligned on the controller heap in DRAM.
- * - ld_csb_rx_end(0x40039098)The value becomes 0 immediately after ld_csb_rx_end (0x40039098) frees the element.
+ * - The value becomes 0 immediately after ld_csb_rx_end (0x40039098) frees the element.
  * - Since the memory may be reallocated, check the pointer again after reading and discard the result if the pointer changed.
  */
 static bool csb_sched_element_valid(uint32_t element)
@@ -345,7 +345,7 @@ void switch1_csb_sched_read(switch1_csb_sched_t *out)
 static volatile uint8_t *csb_tx_event(void)
 {
     const uint32_t evt = *(const volatile uint32_t *)CSB_TX_ENV_ADDR;
-    // ControllerThe controller heap is in DRAM, so validate the address range before dereferencing.
+    // The controller heap is in DRAM, so validate the address range before dereferencing.
     if (evt < UINT32_C(0x3ff80000) || evt >= UINT32_C(0x40000000) ||
         (evt & 3) != 0) {
         return NULL;
@@ -355,19 +355,19 @@ static volatile uint8_t *csb_tx_event(void)
 
 /*
  * - Schedule element +0x12 specifies the scheduled transmission duration in us.
- * - ea_conflict_check(0x40014e9c)ea_conflict_check (0x40014e9c) checks only whether intervals overlap.
- * - ESP-IDFESP-IDF r_ld_csb_tx_en_wrapper sets 9255 us for DH3, but the radio burst lasts only 1875 us.
- * - +0x12If CSB reception is enabled without changing +0x12, transmit events cannot be scheduled within 18 slots centered on a receive time, stretching transmission intervals from 3.75 ms to 15 ms.
- * - +0x12The +0x12 value is written only when CSB transmission is enabled, so it remains set after one write.
+ * - ea_conflict_check (0x40014e9c) checks only whether intervals overlap.
+ * - ESP-IDF r_ld_csb_tx_en_wrapper sets 9255 us for DH3, but the radio burst lasts only 1875 us.
+ * - If CSB reception is enabled without changing +0x12, transmit events cannot be scheduled within 18 slots centered on a receive time, stretching transmission intervals from 3.75 ms to 15 ms.
+ * - The +0x12 value is written only when CSB transmission is enabled, so it remains set after one write.
  */
 #define CSB_TX_EVT_DURATION 0x12
 
 /*
- * - control structure +0x02Control structure +0x02 specifies the position from the slot boundary in us.
+ * - Control structure +0x02 specifies the position from the slot boundary in us.
  * - Within-slot offsets range from 0 to 1023; for ACL and CSB reception, hardware records the measured value.
- * - CSBFor CSB transmission the within-slot offset never changes from 0, so transmissions always align with slot boundaries.
+ * - For CSB transmission the within-slot offset never changes from 0, so transmissions always align with slot boundaries.
  * - Radio-event schedule element +0x14 is used only for conflict checking.
- * - control structureIf only the control structure is changed, the conflict-test position and actual transmission position diverge, so write the same within-slot offset to both.
+ * - If only the control structure is changed, the conflict-test position and actual transmission position diverge, so write the same within-slot offset to both.
  */
 #define CS_BITOFF_OFFSET UINT32_C(0x02)
 #define CSB_TX_EVT_BITOFF 0x14
@@ -406,12 +406,12 @@ esp_err_t switch1_csb_tx_set_duration(uint16_t duration_us)
 }
 
 /*
- * +0x08Fields in +0x08 that ROM configures for transmission with whitening disabled.
+ * Fields in +0x08 that ROM configures for transmission with whitening disabled.
  *
  * - bit8-10: LT_ADDR
- * - bit11: EDR(bit 11: EDR (data rate)
- * - bit12: bit 12: whitening disabled
- * - bit14: AFHbit 14: AFH enabled
+ * - bit 11: EDR (data rate)
+ * - bit 12: whitening disabled
+ * - bit 14: AFH enabled
  */
 #define CS_LINKCNTL_EDR UINT16_C(0x0800)
 #define CS_LINKCNTL_AFH_EN UINT16_C(0x4000)
@@ -424,8 +424,8 @@ void switch1_csb_tx_set_whitening_disable(bool disable)
     /*
      * - For transmission without whitening, match the bit layout used by r_ld_strain_start (0x40040a8c).
      * - A synchronization train is specified to use unwhitened packets.
-     * - LT_ADDRSet LT_ADDR to 0, disable AFH and EDR, and set bit 12.
-     * - bit12Preserving other fields and setting only bit 12 extends packet duration from 316.8 us to 960.5 us and prevents proper access-code generation.
+     * - Set LT_ADDR to 0, disable AFH and EDR, and set bit 12.
+     * - Preserving other fields and setting only bit 12 extends packet duration from 316.8 us to 960.5 us and prevents proper access-code generation.
      */
     volatile uint16_t *const link =
         (volatile uint16_t *)(CSB_CS_ADDR + CS_LTADDR_OFFSET);
@@ -446,10 +446,10 @@ void switch1_csb_tx_set_whitening_disable(bool disable)
 }
 
 /*
- * - control structure +0x00Frame format occupies bits 0-4 of control structure +0x00.
+ * - Frame format occupies bits 0-4 of control structure +0x00.
  * - The FLOW, ARQN, and SEQN header fields are generated by baseband hardware, not ROM.
- * - CSBWith CSB transmit frame format 24, all three bits are zero per specification; even writing 0x0298 into the descriptor produces an over-the-air header of 0x018.
- * - ACLWith ACL frame formats, the fields derive from the link's ARQ state.
+ * - With CSB transmit frame format 24, all three bits are zero per specification; even writing 0x0298 into the descriptor produces an over-the-air header of 0x018.
+ * - With ACL frame formats, the fields derive from the link's ARQ state.
  */
 esp_err_t switch1_csb_tx_set_frame_format(uint8_t format, uint16_t *out_before)
 {
@@ -675,8 +675,8 @@ esp_err_t switch1_csb_tx_set_interval(uint16_t expect, uint16_t interval)
 }
 
 /*
- * - descriptorThe first two descriptor words hold the packet header and payload header.
- * - csb_apply()This is the same location that csb_apply() writes through the normal payload transmit path.
+ * - The first two descriptor words hold the packet header and payload header.
+ * - This is the same location that csb_apply() writes through the normal payload transmit path.
  */
 static volatile uint16_t *csb_descriptor(void)
 {
@@ -717,9 +717,9 @@ esp_err_t switch1_csb_write_descriptor(uint16_t header, uint16_t pheader)
     descriptor[2] = pheader;
     /*
      * - For LLID 3 (LMP), also write the data address to descriptor +0x08.
-     * - ld_acl_tx(0x4003000d)ld_acl_tx (0x4003000d) first reads +0x08 and reads +0x06 only if that is zero.
-     * - ACLACL LMP transmissions store the data address at +0x08, while data transmissions use +0x06.
-     * - CSBCSB transmission sets only +0x06; changing just LLID to 3 leaves the LMP payload reference at +0x08 equal to zero.
+     * - ld_acl_tx (0x4003000d) first reads +0x08 and reads +0x06 only if that is zero.
+     * - ACL LMP transmissions store the data address at +0x08, while data transmissions use +0x06.
+     * - CSB transmission sets only +0x06; changing just LLID to 3 leaves the LMP payload reference at +0x08 equal to zero.
      */
     if ((pheader & 0x3) == 3) {
         descriptor[4] = descriptor[3];
@@ -770,7 +770,7 @@ esp_err_t switch1_csb_raw_start(const uint8_t bd_addr[6], uint64_t bch34,
         err = send_command_wait(HCI_SET_RESERVED_LT_ADDR, params, 1);
         if (err != ESP_OK) {
             /*
-             * - status 0x0bStatus 0x0b indicates that LT_ADDR is already in use.
+             * - Status 0x0b indicates that LT_ADDR is already in use.
              * - If an LT_ADDR reservation remains, treat that as normal and continue using the existing reservation.
              * - Return any other status as an error.
              */
@@ -782,18 +782,18 @@ esp_err_t switch1_csb_raw_start(const uint8_t bd_addr[6], uint64_t bch34,
         s_lt_reserved = true;
     }
     /*
-     * 1. CSBDo not write data before enabling CSB.
-     * 2. ControllerThe controller validates the length against the currently enabled packet type.
-     * 3. DH5Passing 339 bytes before HCI_SET_CLB enables DH5 is rejected with status 0x12.
+     * 1. Do not write data before enabling CSB.
+     * 2. The controller validates the length against the currently enabled packet type.
+     * 3. Passing 339 bytes before HCI_SET_CLB enables DH5 is rejected with status 0x12.
      */
 
-    // ROMUse normal BCH parity bits while ROM creates the first descriptor.
+    // Use normal BCH parity bits while ROM creates the first descriptor.
     csb_write_bdaddr(s_target_addr);
     csb_write_bch((s_target_bch & ~UINT64_C(0xffffffff)) |
                   (~s_target_bch & UINT64_C(0xffffffff)));
 
     bool retried = false;
-    // 183Transmit with DH3 when the payload is 183 bytes or less.
+    // Transmit with DH3 when the payload is 183 bytes or less.
     const bool use_dh3 = s_csb_data_length <= CSB_DH3_BODY_MAX;
     s_csb_packet_type = use_dh3 ? CSB_PACKET_MASK_DH3 : CSB_PACKET_MASK_DH5;
     p = params;
@@ -824,7 +824,7 @@ esp_err_t switch1_csb_raw_start(const uint8_t bd_addr[6], uint64_t bch34,
     }
 
 
-    // HCI_SET_CLBThe HCI_SET_CLB result contains status, LT_ADDR, and accepted transmit interval in that order.
+    // The HCI_SET_CLB result contains status, LT_ADDR, and accepted transmit interval in that order.
     const uint16_t accepted_interval =
         (g_command_return_length >= 4)
             ? (uint16_t)(g_command_return[2] | ((uint16_t)g_command_return[3] << 8))
@@ -839,8 +839,8 @@ esp_err_t switch1_csb_raw_start(const uint8_t bd_addr[6], uint64_t bch34,
         uint8_t clock_params[3];
         uint8_t *cp = clock_params;
         /*
-         * - Connection_Handle。Connection_Handle; unused when reading the local clock.
-         * - Which_Clock = 0Which_Clock = 0 selects the local clock.
+         * - Connection_Handle; unused when reading the local clock.
+         * - Which_Clock = 0 selects the local clock.
          */
         UINT16_TO_STREAM(cp, 0);
         UINT8_TO_STREAM(cp, 0);
@@ -858,9 +858,9 @@ esp_err_t switch1_csb_raw_start(const uint8_t bd_addr[6], uint64_t bch34,
     err = write_clb_data_raw(s_csb_staging, s_csb_data_length);
     if (err != ESP_OK && s_csb_data_length > CSB_FRAGMENT_MAX) {
         /*
-         * - ControllerHandle the case where the controller does not accept fragmented transmission.
-         * - 1Retry once with a reduced payload of 252 bytes, which fits in one fragment.
-         * - 252252 bytes hold 63 repetitions of the four-byte wake-up code, so repetition remains continuous and the body's starting bit position is unchanged.
+         * - Handle the case where the controller does not accept fragmented transmission.
+         * - Retry once with a reduced payload of 252 bytes, which fits in one fragment.
+         * - 252 bytes hold 63 repetitions of the four-byte wake-up code, so repetition remains continuous and the body's starting bit position is unchanged.
          */
         ESP_LOGW(TAG, "%u-byte transmission was rejected; retrying with %u bytes",
                  s_csb_data_length, CSB_FRAGMENT_MAX);
@@ -881,8 +881,8 @@ esp_err_t switch1_csb_raw_start(const uint8_t bd_addr[6], uint64_t bch34,
 
     /*
      * - Correct the scheduled transmission duration to the actual radio-burst duration.
-     * - CSBPrevent dropped transmit events when CSB reception runs concurrently.
-     * - DH5Set event durations of five slots for DH5 and three slots for DH3.
+     * - Prevent dropped transmit events when CSB reception runs concurrently.
+     * - Set event durations of five slots for DH5 and three slots for DH3.
      */
     switch1_csb_tx_set_duration(
         (uint16_t)((s_csb_data_length > CSB_DH3_BODY_MAX ? 5 : 3) * 625));
@@ -942,7 +942,7 @@ esp_err_t switch1_csb_wake_stop_wait(void)
     if (err == ESP_OK) {
         s_csb_running = false;
         s_csb_raw_mode = false;
-        // Command CompleteAfter receiving Command Complete, wait for ROM to finish the current frame.
+        // After receiving Command Complete, wait for ROM to finish the current frame.
         vTaskDelay(pdMS_TO_TICKS(5));
     }
     return err;

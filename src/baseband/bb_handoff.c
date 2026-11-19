@@ -50,8 +50,8 @@ static void acl_handoff_controller(void *handoff_arg)
             continue;
         }
         /*
-         * - hci_env[17 + 7*i]r_hci_bt_acl_bdaddr_register copies the six-byte BD_ADDR into hci_env[17 + 7*i] least-significant byte first.
-         * - request->targetrequest->target is stored in display order, so reverse the byte order for comparison.
+         * - r_hci_bt_acl_bdaddr_register copies the six-byte BD_ADDR into hci_env[17 + 7*i] least-significant byte first.
+         * - request->target is stored in display order, so reverse the byte order for comparison.
          */
         bool same_peer = true;
         for (uint8_t j = 0; j < 6; ++j) {
@@ -91,8 +91,8 @@ static void acl_handoff_controller(void *handoff_arg)
         return;
     }
     /*
-     * - HCI 0x0442Even if HCI 0x0442 stop is rejected with status 0x0c, the Phase 2 callback may have re-registered
-     *   CSBa CSB receive element that remains active.
+     * - Even if HCI 0x0442 stop is rejected with status 0x0c, the Phase 2 callback may have re-registered
+     *   a CSB receive element that remains active.
      * - Stop it directly inside the controller to prevent contention.
      */
     if (ld_csb_rx_env != NULL) {
@@ -107,7 +107,7 @@ static void acl_handoff_controller(void *handoff_arg)
     }
     /*
      * - ACL reception and CSB reception share the receive-descriptor ring buffer and index
-     *   ((index at ld_env+0x1AA = 0x3ffb96ba).
+     *   (index at ld_env+0x1AA = 0x3ffb96ba).
      * - Continuing wake-up reception would conflict with reception on the ACL link.
      */
     phase2_restore_hook();
@@ -123,7 +123,7 @@ static void acl_handoff_controller(void *handoff_arg)
     acl_control[2] = (uint16_t)(request->clock_delta & UINT32_C(0xffff));
     acl_control[3] = (uint16_t)((request->clock_delta >> 16) & UINT32_C(0x07ff));
     /*
-     * - +0x08+0x08 stores LT_ADDR (bits 8-10), EDR (bit 11), whitening disabled (bit 12), and AFH (bit 14).
+     * - +0x08 stores LT_ADDR (bits 8-10), EDR (bit 11), whitening disabled (bit 12), and AFH (bit 14).
      * - The wake-up exchange is unwhitened, but the link becomes a normal ACL link after creation.
      * - Unless whitening is enabled, the received header fails its HEC check and the packet is discarded.
      */
@@ -140,29 +140,29 @@ static void acl_handoff_controller(void *handoff_arg)
     acl_control[8] = (uint16_t)(request->bch34 & UINT64_C(0xffff));
     acl_control[9] = (uint16_t)((request->bch34 >> 16) & UINT64_C(0xffff));
     acl_control[10] = (uint16_t)((request->bch34 >> 32) & UINT64_C(0x3));
-    /* r_ld_pscan_evt_handler(0x4003f2cf)Match the value r_ld_pscan_evt_handler (0x4003f2cf) writes when converting a page-scan control structure
-     * ESP32into one for an ACL link where the ESP32 acts as a peripheral. */
+    /* Match the value r_ld_pscan_evt_handler (0x4003f2cf) writes when converting a page-scan control structure
+     * into one for an ACL link where the ESP32 acts as a peripheral. */
     acl_control[11] |= CS_HOPCNTL_FH_EN;
     acl_control[12] &= (uint16_t)~UINT16_C(0x0008);
     acl_control[13] = 48;
 
     /*
-     * 1. lm_page_scan_end_ind_handler(0x40052e40)Write in the same order as lm_page_scan_end_ind_handler (0x40052e40) prepares immediately before r_lc_start.
-     * 2. r_ld_acl_startCalling r_ld_acl_start alone creates only the lower-level link, not lc_env or the link-control task state.
+     * 1. Write in the same order as lm_page_scan_end_ind_handler (0x40052e40) prepares immediately before r_lc_start.
+     * 2. Calling r_ld_acl_start alone creates only the lower-level link, not lc_env or the link-control task state.
      */
     uint8_t *const lm_link_record =
         &lm_env[LM_LINK_RECORD_BASE + LM_LINK_RECORD_STRIDE * link_id];
     lc_bd_addr_t peer_addr;
     for (uint8_t i = 0; i < 6; ++i) {
-        /* request->targetrequest->target is stored in display order (MSB first); the ROM path expects the
-         * r_ld_util_fhs_unpkleast-significant-byte-first order produced by r_ld_util_fhs_unpk, so reverse it here. */
+        /* request->target is stored in display order (MSB first); the ROM path expects the
+         * least-significant-byte-first order produced by r_ld_util_fhs_unpk, so reverse it here. */
         peer_addr.addr[i] = request->target[5 - i];
         lm_link_record[i] = request->target[5 - i];
     }
     lm_link_record[LM_LINK_STATE_OFFSET] = LM_LINK_STATE_CONNECTED;
     lm_link_record[LM_LINK_ROLE_OFFSET] = ACL_ROLE_PERIPHERAL;
     /*
-     * - LMLM link record +8 contains LT_ADDR, but the normal path for an ESP32 peripheral ACL link does not write it.
+     * - LM link record +8 contains LT_ADDR, but the normal path for an ESP32 peripheral ACL link does not write it.
      * - Only three central-role paths use this field, so do not modify it here.
      */
 
@@ -189,8 +189,8 @@ static void acl_handoff_controller(void *handoff_arg)
     hci_bdaddr_register(link_id, lm_link_record);
     request->lc_start_called = true;
     /*
-     * - class of deviceSet class of device to zero.
-     * - SwitchThe Switch wake-up response contains no FHS.
+     * - Set class of device to zero.
+     * - The Switch wake-up response contains no FHS.
      *   Therefore the Switch class of device is unavailable.
      * - This value is placed in lc_env+54-56 and only included in HCI Connection Request; it does not affect link creation.
      */
@@ -198,10 +198,10 @@ static void acl_handoff_controller(void *handoff_arg)
              lm_env[LM_ENV_DEFAULT_LINK_POLICY]);
 
     /*
-     * - r_lc_startAfter r_lc_start, set the same values ROM uses when creating an ACL link.
+     * - After r_lc_start, set the same values ROM uses when creating an ACL link.
      *   Unless the Phase 2 reception settings are changed to ACL values, packet headers may decode but payloads will be discarded.
-     * - +0x14+0x14 is the third BCH word; an ACL link uses only its lowest two bits.
-     * - +0x5EBits 12 and 13 at +0x5E are set by all three ACL-creation paths, but page-scan initialization clears them, so set them explicitly here.
+     * - +0x14 is the third BCH word; an ACL link uses only its lowest two bits.
+     * - Bits 12 and 13 at +0x5E are set by all three ACL-creation paths, but page-scan initialization clears them, so set them explicitly here.
      */
     acl_control[10] = (uint16_t)((request->bch34 >> 32) & UINT64_C(0x3));
     acl_control[47] |= UINT16_C(0x3000);
@@ -210,7 +210,7 @@ static void acl_handoff_controller(void *handoff_arg)
     packet_type_hook_install();
     /*
      * - Write the value saved before Phase 2 reception began to +0x60.
-     * - +0x60+0x60 holds the last SEQN accepted by hardware.
+     * - +0x60 holds the last SEQN accepted by hardware.
      *   Receiving the Phase 2 response (SEQN=1) changes 0x0004 to 0x0405.
      * - If this value is not restored for ACL, the Switch's first LMP packet is mistaken for a retransmission and discarded.
      */
@@ -247,10 +247,10 @@ static void acl_handoff_controller(void *handoff_arg)
     if ((lc_start_flags & (LC_START_FLAG_LC_ENV | LC_START_FLAG_LD_ACL_ENV)) ==
         (LC_START_FLAG_LC_ENV | LC_START_FLAG_LD_ACL_ENV)) {
         /*
-         * 1. LMP_host_connection_reqSend LMP_host_connection_req.
-         *    SwitchThe Switch does not transmit LMP until it receives this PDU.
-         *    ESP32When the ESP32 sends it, the Switch sends the same PDU in response.
-         *    lmp_host_con_req_handlerHCI Connection Request is delivered to the host only after lmp_host_con_req_handler processes it.
+         * 1. Send LMP_host_connection_req.
+         *    The Switch does not transmit LMP until it receives this PDU.
+         *    When the ESP32 sends it, the Switch sends the same PDU in response.
+         *    HCI Connection Request is delivered to the host only after lmp_host_con_req_handler processes it.
          * 2. Send internal message 0x0518 to the link-control task.
          *    Receiver lc_op_hl_cnx_ind_handler (0x400293fc) processes it only when the internal link state is 2 or 5.
          *    The state is 5 when the link is registered with normal controller processing.
@@ -271,9 +271,9 @@ static void acl_handoff_controller(void *handoff_arg)
             request->host_connection_request_posted = true;
         }
         /*
-         * - LMP_setup_completeDo not transmit LMP_setup_complete here; doing so makes ROM change the internal link state to 1, preventing processing of
-         *   Switchthe Switch's later LMP_host_connection_req.
-         * - SwitchROM transmits this PDU once the host accepts the Switch's request.
+         * - Do not transmit LMP_setup_complete here; doing so makes ROM change the internal link state to 1, preventing processing of
+         *   the Switch's later LMP_host_connection_req.
+         * - ROM transmits this PDU once the host accepts the Switch's request.
          */
         request->result = ESP_OK;
         request->link_id = link_id;
@@ -282,8 +282,8 @@ static void acl_handoff_controller(void *handoff_arg)
         return;
     }
     /*
-     * - ke_mallocIf ke_malloc fails, ROM calls assert_err and returns without changing state.
-     * - lm_envOnly the lm_env record and hci_env registration have changed; restore their previous values before restoring the receive element.
+     * - If ke_malloc fails, ROM calls assert_err and returns without changing state.
+     * - Only the lm_env record and hci_env registration have changed; restore their previous values before restoring the receive element.
      */
     lm_link_record[LM_LINK_STATE_OFFSET] = LM_LINK_STATE_PSCAN_RESERVED;
     lm_link_record[LM_LINK_ROLE_OFFSET] = 0;
@@ -334,7 +334,7 @@ static void acl_handoff_controller(void *handoff_arg)
 
 #define ACL_FOLLOWUP_FAST_MS 900
 /*
- * - 900msAfter 900 ms, wait in 1 ms intervals and continue past the page-scan reconnection.
+ * - After 900 ms, wait in 1 ms intervals and continue past the page-scan reconnection.
  * - Do not finish before the specified time, because this task must remove the two hooks it installed.
  */
 #define ACL_FOLLOWUP_MS 8000
@@ -343,10 +343,10 @@ lc_version_req_t g_lc_version_req;
 volatile bool g_con_req_dispatched;
 
 /* Wait time between registering the link with normal controller processing and transmitting the ESP32 LMP_version_req.
- * SwitchSet it later than the expected arrival of the Switch's LMP_host_connection_req. */
+ * Set it later than the expected arrival of the Switch's LMP_host_connection_req. */
 #define LC_VERSION_REQ_DELAY_US 200000
 /* Wait time between registering the link with normal controller processing and proactively notifying HCI Connection Request.
- * ROMSkip this path if ROM has already delivered the notification. */
+ * Skip this path if ROM has already delivered the notification. */
 #define CON_REQ_INJECT_DELAY_US 300000
 
 static void acl_followup_task(void *task_arg)
@@ -358,7 +358,7 @@ static void acl_followup_task(void *task_arg)
     while (esp_timer_get_time() - followup_start_us <
            (int64_t)ACL_FOLLOWUP_MS * 1000) {
         /*
-         * ROMIf ROM changed the internal link state to 20, restore it to 5 so the Switch's LMP_host_connection_req can be processed.
+         * If ROM changed the internal link state to 20, restore it to 5 so the Switch's LMP_host_connection_req can be processed.
          */
         if (!g_lc_idle_state_dispatched && lc_state[link_id] == 20) {
             g_lc_idle_state_dispatched = true;
@@ -369,9 +369,9 @@ static void acl_followup_task(void *task_arg)
                                                    &g_lc_idle_state_request, false);
         }
         /*
-         * ESP32Sending LMP from the ESP32 changes the internal link state from 5 to another value.
-         * LMP_host_connection_reqLMP_host_connection_req is processed only when the internal state is 5.
-         * (`lmp_host_con_req_handler` 0x4002b402)It is handled by lmp_host_con_req_handler (0x4002b402); do not transmit until the Switch's request is processed.
+         * Sending LMP from the ESP32 changes the internal link state from 5 to another value.
+         * LMP_host_connection_req is processed only when the internal state is 5.
+         * It is handled by lmp_host_con_req_handler (0x4002b402); do not transmit until the Switch's request is processed.
          */
         if (!g_lc_version_req.requested &&
             esp_timer_get_time() - followup_start_us >= LC_VERSION_REQ_DELAY_US) {
@@ -382,10 +382,10 @@ static void acl_followup_task(void *task_arg)
                                                    &g_lc_version_req, false);
         }
         /*
-         * 1. SwitchNotify the host of HCI Connection Request after processing the Switch's LMP_host_connection_req and returning the internal state to 5.
+         * 1. Notify the host of HCI Connection Request after processing the Switch's LMP_host_connection_req and returning the internal state to 5.
          * 2. Without notification, the Switch finishes processing LMP_host_connection_req after 35 ms.
          *    Accept Connection Request from the host makes the controller send LMP_accepted, which the Switch is awaiting.
-         * 3. ROMDo not send a duplicate notification if ROM already sent HCI Connection Request.
+         * 3. Do not send a duplicate notification if ROM already sent HCI Connection Request.
          *    If already sent, lmp_host_con_req_handler wrote 1 to lc_env+86 at 0x4002b461.
          *    Duplicate notification would make the host receive two incoming requests from the same Switch.
          */
@@ -448,8 +448,8 @@ esp_err_t switch1_acl_handoff_start(const uint8_t bd_addr[6], uint64_t bch34,
     xTaskCreate(acl_followup_task, "aclfollowup", 2560, NULL, 5, NULL);
 
     /*
-     * - falsefalse means fail immediately if the controller work queue is full.
-     * - callbackThe callback does not wait or issue HCI commands; it only registers the frame-format-3 schedule element.
+     * - false means fail immediately if the controller work queue is full.
+     * - The callback does not wait or issue HCI commands; it only registers the frame-format-3 schedule element.
      */
     if (btdm_dispatch_work_to_controller(acl_handoff_controller,
                                          &g_acl_handoff, false) != 0) {
@@ -476,7 +476,7 @@ bool switch1_lc_start_status(uint8_t *out_lc_state, uint8_t *out_flags)
 }
 
 /*
- * 1. r_lc_detach(0x4002037c)r_lc_detach (0x4002037c) accepts (link_id, reason), changes the internal link state to 25, and sends LMP_detach.
+ * 1. r_lc_detach (0x4002037c) accepts (link_id, reason), changes the internal link state to 25, and sends LMP_detach.
  * 2. After the state changes to 26 and then 27, it frees the link and notifies the host with HCI Disconnection Complete.
  */
 #define IP_FUNCS_LC_DETACH_INDEX (UINT16_C(0x2cc) / sizeof(void *))
@@ -500,7 +500,7 @@ static void acl_detach_controller(void *detach_arg)
     }
     lc_detach(link_id, LC_DETACH_REASON_REMOTE_USER);
     /*
-     * - s_acl_detach_requestedWhile s_acl_detach_requested is true, permit only one request per cycle.
+     * - While s_acl_detach_requested is true, permit only one request per cycle.
      */
     __asm__ __volatile__("memw" ::: "memory");
     s_acl_detach_requested = false;
@@ -516,8 +516,8 @@ uint8_t switch1_acl_lc_state(void)
 }
 
 /*
- * - r_lc_release(0x4001f8a8)r_lc_release (0x4001f8a8) releases the ESP32-side link without waiting for an LMP_detach exchange.
- * - SwitchUse if the Switch stops receiving on the link and disconnection cannot complete.
+ * - r_lc_release (0x4001f8a8) releases the ESP32-side link without waiting for an LMP_detach exchange.
+ * - Use if the Switch stops receiving on the link and disconnection cannot complete.
  * - When freed, ROM notifies the host with HCI Disconnection Complete and releases host-stack state as well.
  */
 #define ROM_LC_RELEASE_ADDR UINT32_C(0x4001f8a8)
@@ -553,7 +553,7 @@ esp_err_t switch1_acl_release(void)
 
 /*
  * - If a disconnect request cannot be processed, change the internal link state to 5.
- * - r_lc_detachIf LMP processing is underway, r_lc_detach returns without changing the state.
+ * - If LMP processing is underway, r_lc_detach returns without changing the state.
  */
 esp_err_t switch1_acl_force_idle(void)
 {
@@ -588,7 +588,7 @@ esp_err_t switch1_acl_detach(void)
         return ESP_ERR_INVALID_STATE;
     }
     /*
-     * 1. `r_lc_detach`(0x4002037c)r_lc_detach (0x4002037c) changes the internal link state to 25 and sends LMP_detach.
+     * 1. r_lc_detach (0x4002037c) changes the internal link state to 25 and sends LMP_detach.
      * 2. State becomes 26 on transmit completion, then 27 when r_lc_release (0x4001f8a8) runs.
      * 3. If internal state is 25-27, wait for disconnection to complete.
      *    Return success so the caller does not misinterpret it as a failed disconnect and reboot.
@@ -597,7 +597,7 @@ esp_err_t switch1_acl_detach(void)
         return ESP_OK;
     }
     s_acl_detach_requested = true;
-    // btdm_dispatch_work_to_controllerbtdm_dispatch_work_to_controller returns 0 on success.
+    // btdm_dispatch_work_to_controller returns 0 on success.
     if (btdm_dispatch_work_to_controller(acl_detach_controller,
                                          (void *)(uintptr_t)link_id, false) != 0) {
         s_acl_detach_requested = false;

@@ -1,7 +1,7 @@
 /*
  * Configure wake-up parity in the receiver control structure.
  * Determine successful reception by directly reading receive descriptors.
- * HCIWaiting for an HCI event would be too slow between reception of the response and Phase 3 transmission.
+ * Waiting for an HCI event would be too slow between reception of the response and Phase 3 transmission.
  */
 
 #include "baseband.h"
@@ -28,7 +28,7 @@
 static const char *TAG = "wake_csb";
 
  /*
-  * CSBCSB receiver control structure.
+  * CSB receiver control structure.
   * Corresponding ROM routine: r_ld_csb_rx_start (0x4003972c).
   * Has the same layout as the transmitter (0x3ffb22b6).
  * - +0x0A: BD_ADDR
@@ -36,20 +36,20 @@ static const char *TAG = "wake_csb";
  */
 #define CSB_RX_CS_ADDR UINT32_C(0x3ffb231c)
 /*
- * HCIHCI Set_Connectionless_Slave_Broadcast_Receive.
- * bluedroidNot defined in Bluedroid's hcidefs.h, but implemented by the ESP32 controller.
- * ROMROM lb_hci_command_handler_tab registers a handler for opcode 0x0442.
+ * HCI Set_Connectionless_Slave_Broadcast_Receive.
+ * Not defined in Bluedroid's hcidefs.h, but implemented by the ESP32 controller.
+ * ROM lb_hci_command_handler_tab registers a handler for opcode 0x0442.
  */
 #define HCI_SET_CLB_RECEIVE (0x0042 | HCI_GRP_LINK_CONTROL_CMDS)
 /*
- * HCIHCI Set_Event_Mask_Page_2.
- * CSBCSB receive events (0x51) are disabled by default.
- * ROMROM r_hci_evt_mask_set (0x400189e4) copies the eight-byte page-2 mask to hci_env+8.
+ * HCI Set_Event_Mask_Page_2.
+ * CSB receive events (0x51) are disabled by default.
+ * ROM r_hci_evt_mask_set (0x400189e4) copies the eight-byte page-2 mask to hci_env+8.
  * Do not alter the existing bit assignments of event mask page 2.
- * bluedroidBluedroid never issues this command, so enable bits 16-18 here.
- * - bit16: bit 16: synchronization-train reception
- * - bit17: CSBbit 17: CSB reception
- * - bit18: CSBbit 18: CSB reception timeout
+ * Bluedroid never issues this command, so enable bits 16-18 here.
+ * - bit 16: synchronization-train reception
+ * - bit 17: CSB reception
+ * - bit 18: CSB reception timeout
  */
 #define HCI_SET_EVT_MASK_PAGE_2 (0x0063 | HCI_GRP_HOST_CONT_BASEBAND_CMDS)
 #define HCI_EVT_MASK_PAGE_2_CSB UINT8_C(0x07)
@@ -70,7 +70,7 @@ static bool s_csb_rx_ltaddr_valid;
 
 /*
  * Descriptor status alone cannot determine the number of consecutive receptions.
- * HCIHCI event 0x51 occurs once per reception; count them here.
+ * HCI event 0x51 occurs once per reception; count them here.
  */
 static volatile uint32_t s_csb_rx_event_count;
 
@@ -100,7 +100,7 @@ static void csb_rx_write_bch(uint64_t bch34)
     base[0] = (uint16_t)(bch34 & 0xFFFF);
     base[1] = (uint16_t)((bch34 >> 16) & 0xFFFF);
     /*
-     * 3The third word uses different write formats for transmission and reception.
+     * The third word uses different write formats for transmission and reception.
      * - Transmit (r_ld_csb_tx_en): write only the upper two bits of parity.
      * - Receive (r_ld_csb_rx_start): also write 0xFF40.
      * The meaning of the upper ten bits is unknown; preserve those ROM writes only when receiving.
@@ -110,7 +110,7 @@ static void csb_rx_write_bch(uint64_t bch34)
 }
 
 /*
- * HCIHCI parameter fields:
+ * HCI parameter fields:
  * - Enable(1)
  * - BD_ADDR(6)
  * - LT_ADDR(1)
@@ -141,7 +141,7 @@ static void csb_rx_build_params(uint8_t params[CSB_RX_PARAM_SIZE],
     UINT8_TO_STREAM(p, 250);  // Remote_Timing_Accuracy(ppm)
     UINT8_TO_STREAM(p, 0);    // Skip
     /*
-     * LLID 3The fixed buffer for LLID 3 is only 20 bytes, so permit only DM1, which holds the 17-byte response.
+     * The fixed buffer for LLID 3 is only 20 bytes, so permit only DM1, which holds the 17-byte response.
      * Allowing longer packet types would overwrite adjacent fixed buffers.
      */
     UINT16_TO_STREAM(p, CSB_EDR_EXCLUSION_MASK | HCI_PKT_TYPES_MASK_DM1);
@@ -175,7 +175,7 @@ esp_err_t switch1_csb_rx_start(const uint8_t bd_addr[6], uint64_t bch34,
     /*
      * Enable receive events before starting reception.
      * Without receive events enabled, the controller sends no event notifications.
-     * descriptorReception could then be detected only by reading descriptors directly.
+     * Reception could then be detected only by reading descriptors directly.
      */
     {
         uint8_t mask[8] = {0};
@@ -199,8 +199,8 @@ esp_err_t switch1_csb_rx_start(const uint8_t bd_addr[6], uint64_t bch34,
     switch1_csb_rx_reapply();
     /*
      * Do not log here.
-     * switch1_csb_rx_startThe Switch may respond immediately after switch1_csb_rx_start returns.
-     * UART 4Printing four UART lines (about 20 ms) could delay detection and miss Phase 3 timing, so store only the 24 control-structure words.
+     * The Switch may respond immediately after switch1_csb_rx_start returns.
+     * Printing four UART lines (about 20 ms) could delay detection and miss Phase 3 timing, so store only the 24 control-structure words.
      */
     {
         const volatile uint16_t *const cs =
@@ -215,7 +215,7 @@ esp_err_t switch1_csb_rx_start(const uint8_t bd_addr[6], uint64_t bch34,
 
 /*
  * Reapply the settings to the receiver control structure.
- * ROMROM rebuilds settings for each event, so call repeatedly as on the transmitter side.
+ * ROM rebuilds settings for each event, so call repeatedly as on the transmitter side.
  * In particular, ROM sets bit 15 (hopping enabled) at +0x16; without reapplying, the receive frequency cycles through 79 channels.
  */
 static void switch1_csb_rx_reapply(void)
@@ -223,17 +223,17 @@ static void switch1_csb_rx_reapply(void)
     if (!s_csb_rx_active) {
         return;
     }
-    /* ROMROM calculates and writes normal parity from BD_ADDR; replace it with wake-up BCH parity. */
+    /* ROM calculates and writes normal parity from BD_ADDR; replace it with wake-up BCH parity. */
     csb_rx_write_bdaddr(s_csb_rx_target);
     csb_rx_write_bch(s_csb_rx_bch);
     /*
-     * SwitchThe Switch response header uses LT_ADDR 0, while the HCI command accepts only values 1-7.
-     * control structureWrite 0 directly into the control structure.
-     * LT_ADDRLT_ADDR occupies bits 10:8 at +0x08.
-     * +0x00Do not change the lower five bits at +0x00, which represent the frame format.
+     * The Switch response header uses LT_ADDR 0, while the HCI command accepts only values 1-7.
+     * Write 0 directly into the control structure.
+     * LT_ADDR occupies bits 10:8 at +0x08.
+     * Do not change the lower five bits at +0x00, which represent the frame format.
      *
-     * control structure +0x08Set bit 12 of receiver control structure +0x08 to disable whitening.
-     * SwitchBecause the Switch transmits its response without whitening, set the initial whitening value to 0.
+     * Set bit 12 of receiver control structure +0x08 to disable whitening.
+     * Because the Switch transmits its response without whitening, set the initial whitening value to 0.
      * By default, the receiver derives the whitening seed from the piconet clock.
      * Without this change, the decoded header varies on each reception.
      */
@@ -259,15 +259,15 @@ static void switch1_csb_rx_reapply(void)
 }
 
 /*
- * control structureThe control structure contains the hardware-measured receive time.
- * - +0x52, +0x54: +0x52, +0x54: clock
- * - +0x56: +0x56: within-slot position (10 bits)
- * ld_acl_rx_sync(0x4002fbec)ld_acl_rx_sync (0x4002fbec) subtracts 68 us from +0x56 and normalizes to 0-624.
+ * The control structure contains the hardware-measured receive time.
+ * - +0x52, +0x54: clock
+ * - +0x56: within-slot position (10 bits)
+ * ld_acl_rx_sync (0x4002fbec) subtracts 68 us from +0x56 and normalizes to 0-624.
  */
 #define CS_RXCLK_LO_OFFSET UINT32_C(0x52)
 #define CS_RXCLK_HI_OFFSET UINT32_C(0x54)
 #define CS_RXBITOFF_OFFSET UINT32_C(0x56)
-// ld_acl_rx_sync(0x4002fc8c)Correction in ld_acl_rx_sync (0x4002fc8c) that subtracts 68 us from the receive-slot position.
+// Correction in ld_acl_rx_sync (0x4002fc8c) that subtracts 68 us from the receive-slot position.
 #define CS_RXBITOFF_CORRECTION 68
 
 bool switch1_csb_rx_read_sync(uint32_t *out_clk, uint16_t *out_bitoff,
@@ -309,15 +309,15 @@ bool switch1_csb_rx_read_sync(uint32_t *out_clk, uint16_t *out_bitoff,
 void switch1_csb_rx_set_format(uint8_t format)
 {
 /*
- * control structure +0x00Bits 0-4 of control structure +0x00 specify the frame format.
+ * Bits 0-4 of control structure +0x00 specify the frame format.
  * - 2, 3: ACL
- * - 4: 4: page
- * - 5: 5: page scan
- * - 24: CSB24: CSB transmission and synchronization train
- * - 25: CSB25: CSB reception and synchronization scan
+ * - 4: page
+ * - 5: page scan
+ * - 24: CSB transmission and synchronization train
+ * - 25: CSB reception and synchronization scan
  *
- * CSBDuring CSB reception the hardware does not store received payload data.
- * ACLSwitching to an ACL format enters the code path that saves payloads.
+ * During CSB reception the hardware does not store received payload data.
+ * Switching to an ACL format enters the code path that saves payloads.
  */
     volatile uint16_t *const cs = (volatile uint16_t *)CSB_RX_CS_ADDR;
     *cs = (uint16_t)((*cs & ~UINT16_C(0x001F)) | (format & 0x1F));
@@ -348,8 +348,8 @@ esp_err_t switch1_csb_rx_restart(uint16_t interval, uint32_t next_clock)
     g_suppress_command_error_log = false;
     /*
      * Stopping does not necessarily finish immediately.
-     * r_ld_csb_rx_stop(0x40039bb8)When env+0x3E is 1 (running), r_ld_csb_rx_stop (0x40039bb8) writes 2 at 0x40039bf2 and returns.
-     * envThe env is freed after processing its schedule element.
+     * When env+0x3E is 1 (running), r_ld_csb_rx_stop (0x40039bb8) writes 2 at 0x40039bf2 and returns.
+     * The env is freed after processing its schedule element.
      * Starting before it is freed fails with 12 (Command Disallowed) at 0x40039738; wait until the pointer becomes NULL.
      * Abort this restart attempt if the pointer does not become NULL before the deadline.
      */
@@ -397,11 +397,11 @@ esp_err_t switch1_csb_rx_stop(const uint8_t bd_addr[6], uint16_t interval)
 
 /*
  * Receive descriptor layout.
- * ld_csb_rx_frm_cbk(0x400393a4)ld_csb_rx_frm_cbk (0x400393a4) uses the lowest two bits of ld_env[0x1AA]
- * 4to select one of four receive descriptors.
+ * ld_csb_rx_frm_cbk (0x400393a4) uses the lowest two bits of ld_env[0x1AA]
+ * to select one of four receive descriptors.
  * Bit 15 of the first word indicates completion.
  * The low 15 bits of the first word address the next descriptor in shared memory.
- * 4The four descriptors are used in a ring.
+ * The four descriptors are used in a ring.
  */
 #define CSB_RX_DESC_ADDR UINT32_C(0x3ffb2382)
 #define CSB_RX_DESC_WORDS 7
@@ -410,32 +410,32 @@ esp_err_t switch1_csb_rx_stop(const uint8_t bd_addr[6], uint16_t interval)
 // On synchronization failure, the least-significant bit of the second word is set.
 #define CSB_RX_STAT_SYNC_ERR UINT16_C(0x0001)
 /*
- * ld_csb_rx_frm_cbk(0x400393a4)Packet validity conditions applied to the second word at 0x400394fc in ld_csb_rx_frm_cbk (0x400393a4).
- * - bit0, bit1, bit2, bit6: Bits 0, 1, 2, and 6: if any is set, do not save the payload.
- * - bit0: bit 0: synchronization failure
- * - bit6: LT_ADDRbit 6: LT_ADDR mismatch
+ * Packet validity conditions applied to the second word at 0x400394fc in ld_csb_rx_frm_cbk (0x400393a4).
+ * - Bits 0, 1, 2, and 6: if any is set, do not save the payload.
+ * - bit 0: synchronization failure
+ * - bit 6: LT_ADDR mismatch
  */
 #define CSB_RX_STAT_FAIL_MASK UINT16_C(0x0047)
 /*
- * - 4Fourth word: payload header.
+ * - Fourth word: payload header.
  *   Length is taken from bits 3-15 of descriptor[CSB_RX_DESC_PLHEADER].
- * - 6Sixth word: shared-memory location of the payload.
- *   ld_csb_rx_frm_cbkRead by ld_csb_rx_frm_cbk at 0x40039509-0x40039527.
+ * - Sixth word: shared-memory location of the payload.
+ *   Read by ld_csb_rx_frm_cbk at 0x40039509-0x40039527.
  */
 #define CSB_RX_DESC_PLHEADER 3
 #define CSB_RX_DESC_PLBUF 5
 /*
- * - 7The seventh word refers to a different buffer, laid out in 20-byte increments.
- * - 6The buffer pointed to by the sixth word uses 1028-byte increments and holds ACL data.
- * - LLIDHardware is believed to write LLID 3 LMP packets to the seventh-word buffer.
- * - ld_csb_rx_frm_cbkld_csb_rx_frm_cbk reads only the sixth word, so data passed on from ROM is zero.
+ * - The seventh word refers to a different buffer, laid out in 20-byte increments.
+ * - The buffer pointed to by the sixth word uses 1028-byte increments and holds ACL data.
+ * - Hardware is believed to write LLID 3 LMP packets to the seventh-word buffer.
+ * - ld_csb_rx_frm_cbk reads only the sixth word, so data passed on from ROM is zero.
  */
 #define CSB_RX_DESC_LMBUF 6
 #define CSB_RX_HIT_MAX 4
 #define CSB_RX_HIT_BYTES 32
 /*
  * Status is written as soon as header reconstruction completes; an immediate read can occur before the payload has finished arriving.
- * DM1A 17-byte DM1 takes about 300 us including 2/3 FEC, so read again after a delay.
+ * A 17-byte DM1 takes about 300 us including 2/3 FEC, so read again after a delay.
  */
 #define CSB_RX_LATE_US 700
 
@@ -495,7 +495,7 @@ static void csb_rx_log_hit(const struct csb_rx_hit *hit, unsigned index)
 
 /*
  * Comparing only status words misses subsequent consecutive receptions with the same status.
- * descriptor[CSB_RX_DESC_LEVEL]descriptor[CSB_RX_DESC_LEVEL] changes on each reception, so combine it with status to detect changes.
+ * descriptor[CSB_RX_DESC_LEVEL] changes on each reception, so combine it with status to detect changes.
  */
 static uint16_t s_csb_rx_poll_last[CSB_RX_DESC_COUNT];
 static uint16_t s_csb_rx_poll_last_level[CSB_RX_DESC_COUNT];
@@ -503,7 +503,7 @@ static uint16_t s_csb_rx_poll_last_level[CSB_RX_DESC_COUNT];
 
 /*
  * Collect the types and counts of statuses observed while monitoring.
- * CSB_RX_STAT_SYNC_ERRUse this to distinguish CSB_RX_STAT_SYNC_ERR receptions from CSB_RX_STAT_FAIL_MASK failures when the accepted count is zero.
+ * Use this to distinguish CSB_RX_STAT_SYNC_ERR receptions from CSB_RX_STAT_FAIL_MASK failures when the accepted count is zero.
  */
 #define CSB_RX_POLL_KINDS 8
 static uint16_t s_csb_rx_poll_seen[CSB_RX_POLL_KINDS];
@@ -627,8 +627,8 @@ uint32_t switch1_csb_rx_watch(uint32_t duration_ms)
     uint8_t kinds = 0;
     uint32_t windows = 0;
     /*
-     * statSave receive descriptors with nonzero stat that do not match CSB_RX_STAT_FAIL_MASK.
-     * descriptorBy detecting changes per descriptor, this also captures later receptions with identical status words.
+     * Save receive descriptors with nonzero stat that do not match CSB_RX_STAT_FAIL_MASK.
+     * By detecting changes per descriptor, this also captures later receptions with identical status words.
      * Initialize each descriptor status to 0 at monitoring start so descriptors completed before monitoring are captured as the first change.
      * Exclude status 0, which is the initial state of an unused descriptor.
      */
@@ -637,16 +637,16 @@ uint32_t switch1_csb_rx_watch(uint32_t duration_ms)
         last_stat[d] = 0;
     }
     /*
-     * 1Each entry is 144 bytes.
-     * UARTThe UART task has only a 3072-byte stack; allocating four entries there would overflow it and cause a restart.
+     * Each entry is 144 bytes.
+     * The UART task has only a 3072-byte stack; allocating four entries there would overflow it and cause a restart.
      * Place the array in static storage.
-     * switch1_csb_rx_watchswitch1_csb_rx_watch is called only from the UART task, so sharing the array causes no contention.
+     * switch1_csb_rx_watch is called only from the UART task, so sharing the array causes no contention.
      */
     static struct csb_rx_hit hit[CSB_RX_HIT_MAX];
     unsigned hits = 0;
     const int64_t until = esp_timer_get_time() + (int64_t)duration_ms * 1000;
     /*
-     * ROMCapture the word at CSB_RX_CS_ADDR+CS_HOPCNTL_OFFSET immediately before reapplying settings, to detect ROM changes.
+     * Capture the word at CSB_RX_CS_ADDR+CS_HOPCNTL_OFFSET immediately before reapplying settings, to detect ROM changes.
      */
     uint16_t hop_seen[4];
     uint16_t hop_count[4];
@@ -785,8 +785,8 @@ esp_err_t switch1_csb_rx_dump(uint16_t offset, uint8_t count, uint16_t *out)
 
 
 /*
- * CSBSave CSB reception HCI events (0x51).
- * bluedroidBluedroid does not handle this event; the event handler in bb_hci.c receives it and forwards it to bb_csb_rx_on_event.
+ * Save CSB reception HCI events (0x51).
+ * Bluedroid does not handle this event; the event handler in bb_hci.c receives it and forwards it to bb_csb_rx_on_event.
  *
  * Event fields:
  * - BD_ADDR(6)
@@ -796,7 +796,7 @@ esp_err_t switch1_csb_rx_dump(uint16_t offset, uint8_t count, uint16_t *out)
  * - Receive_Status(1)
  * - Fragment(1)
  * - Data_Length(1)
- * - Data(Data (variable length)
+ * - Data (variable length)
  */
 void bb_csb_rx_on_event(BT_HDR *p_msg)
 {
