@@ -107,10 +107,10 @@ void apply_uart_frame(uint8_t command, const uint8_t *payload, uint8_t length)
         break;
     case CMD_SET_HOST:
         /*
-         * SwitchStore only the Switch BD_ADDR in NVS, not the link key.
+         * Store only the Switch BD_ADDR in NVS, not the link key.
          * Even after deleting pairing information, the BD_ADDR identifies the target Switch for wake-up.
-         * SwitchPairing can be registered again when the Switch connects.
-         * payloadThe payload bytes are in display order, with the most-significant byte first.
+         * Pairing can be registered again when the Switch connects.
+         * The payload bytes are in display order, with the most-significant byte first.
          */
         if (length == 6) {
             esp_bd_addr_t host_address;

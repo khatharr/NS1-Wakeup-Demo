@@ -65,14 +65,14 @@ bool host_sec_state_reset_to_page_state(const uint8_t bd_addr[6])
     const uint8_t sm4_before = device_record->sm4;
 
     // Clear the state stuck waiting for the device name.
-    // btm_sec_start_get_namebtm_sec_start_get_name has a timeout value of 0, so this state cannot clear until a device name is returned.
-    // btm_sec_execute_procedurebtm_sec_execute_procedure exits without starting work unless sec_state is idle.
+    // btm_sec_start_get_name has a timeout value of 0, so this state cannot clear until a device name is returned.
+    // btm_sec_execute_procedure exits without starting work unless sec_state is idle.
     if (device_record->sec_state != BTM_SEC_STATE_IDLE) {
         device_record->sec_state = BTM_SEC_STATE_IDLE;
     }
 
-    // SwitchMark the Switch feature information as unknown.
-    // sm4When sm4 is BTM_SM4_TRUE, btm_sec_l2cap_access_req requests authentication and encryption without waiting.
+    // Mark the Switch feature information as unknown.
+    // When sm4 is BTM_SM4_TRUE, btm_sec_l2cap_access_req requests authentication and encryption without waiting.
     // Resume processing after retrieving feature information, preserving the same order used during paging.
     device_record->sm4 = BTM_SM4_UNKNOWN;
 

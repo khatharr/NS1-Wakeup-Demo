@@ -1,5 +1,5 @@
 /*
- * ROMReplace the ROM CSB receive callback before it releases the receive descriptor.
+ * Replace the ROM CSB receive callback before it releases the receive descriptor.
  * Use the Switch native clock in the received payload to calculate the clock difference when registering the ACL link.
  */
 
@@ -142,11 +142,11 @@ static void IRAM_ATTR phase2_csb_frame(uint32_t timestamp,
     }
 
     /*
-     * ROMPreserve cleanup done by ROM ld_csb_rx_frm_cbk (0x400393a4) with reason=1.
+     * Preserve cleanup done by ROM ld_csb_rx_frm_cbk (0x400393a4) with reason=1.
      * - If schedule element +0x3E is PHASE2_ELT_STATE_STOPPING (2), receive cleanup frees the EA schedule element.
      * - On synchronization detection, write the registration timestamp to EA schedule element +0x2C.
-     * - +0x2CUsing that +0x2C timestamp, the receive window reservation is computed as 2*drift+1923 us.
-     * - timestampWithout updating timestamp, the receive-window reservation continually grows from 1933 to 3037 us.
+     * - Using that +0x2C timestamp, the receive window reservation is computed as 2*drift+1923 us.
+     * - Without updating timestamp, the receive-window reservation continually grows from 1933 to 3037 us.
      */
     if (reason == 1) {
         volatile uint8_t *const schedule_element =
@@ -187,8 +187,8 @@ static void IRAM_ATTR pscan_rx_frame(uint32_t timestamp,
 {
     if (reason == 1) {
         /*
-         * Frame ManagerFrame Manager constraint:
-         * - callbackApply the preliminary correction only when the callback equals ROM page-scan callback (PHASE2_PSCAN_CALLBACK_ADDR).
+         * Frame Manager constraint:
+         * - Apply the preliminary correction only when the callback equals ROM page-scan callback (PHASE2_PSCAN_CALLBACK_ADDR).
          * - For the replacement callback, perform the same correction as ROM's page-scan callback in pscan_rx_frame.
          */
         ld_pscan_assert_err_handle();
@@ -215,9 +215,9 @@ static void IRAM_ATTR pscan_rx_frame(uint32_t timestamp,
                 g_acl_handoff.pscan_rx_pheader = descriptor[3];
                 if (packet_type == 3) {
                     /*
-                     * ROMROM's page-scan Phase 2 recognizes only TYPE=1 as an established connection.
-                     * - PHASE2_STATUS_FAIL_MASK=0Change the TYPE field of a DM1 with PHASE2_STATUS_FAIL_MASK=0 to POLL.
-                     * - TYPEPass the descriptor with TYPE changed to POLL to the ROM page-scan callback immediately afterward.
+                     * ROM's page-scan Phase 2 recognizes only TYPE=1 as an established connection.
+                     * - Change the TYPE field of a DM1 with PHASE2_STATUS_FAIL_MASK=0 to POLL.
+                     * - Pass the descriptor with TYPE changed to POLL to the ROM page-scan callback immediately afterward.
                      */
                     descriptor[2] =
                         (uint16_t)((descriptor_header & ~UINT16_C(0x0078)) |
@@ -342,7 +342,7 @@ static void phase2_capture_start_controller(void *arg)
     g_acl_handoff.prepare_state = ACL_PREPARE_DONE;
     /*
      * Reuse the ACL link and page_scan_env allocated by page scan on TYPE=3 received just after Phase 3.
-     * - CSBRemove only the EA schedule element that conflicts with CSB transmission via r_ea_elt_remove.
+     * - Remove only the EA schedule element that conflicts with CSB transmission via r_ea_elt_remove.
      */
     (void)r_ea_elt_remove(page_scan_env);
     page_scan_env[0x3e] = 0;
@@ -470,8 +470,8 @@ bool switch1_phase2_capture_take(esp_err_t *out_result, uint8_t *out_lt_addr,
 
     g_phase2_capture.result = result;
     /*
-     * - UARTAbout 20 ms of UART output for three lines adds delay between Phase 2 response and Phase 3 transmission.
-     * - g_phase2_captureg_phase2_capture fields desc, control, payload, rx_clk, and rx_bitoff are unchanged until the next capture begins.
+     * - About 20 ms of UART output for three lines adds delay between Phase 2 response and Phase 3 transmission.
+     * - g_phase2_capture fields desc, control, payload, rx_clk, and rx_bitoff are unchanged until the next capture begins.
      */
     s_phase2_report_pending = true;
 
