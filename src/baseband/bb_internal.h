@@ -31,9 +31,9 @@ extern bool acl_link_context_clear(uint8_t link);
 extern phase2_capture_t g_phase2_capture;
 
 /*
- * - ACLAfter registering the ACL link environment with normal ROM ACL processing, install two hooks to suppress unnecessary ESP32-originated LMP transmissions.
- * - ACL followup taskRemove both hooks when the ACL follow-up task ends.
- * - opcode 0Suppress LMP_not_accepted for opcode 0 and ESP32-initiated packet-type exchanges.
+ * - After registering the ACL link environment with normal ROM ACL processing, install two hooks to suppress unnecessary ESP32-originated LMP transmissions.
+ * - Remove both hooks when the ACL follow-up task ends.
+ * - Suppress LMP_not_accepted for opcode 0 and ESP32-initiated packet-type exchanges.
  */
 void lmp_not_accepted_hook_install(void);
 void lmp_not_accepted_hook_remove(void);

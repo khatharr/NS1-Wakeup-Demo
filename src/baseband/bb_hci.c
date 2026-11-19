@@ -1,5 +1,5 @@
 // This baseband module sends HCI commands without Bluedroid; centralize sending and completion waits here.
-// bluedroidForward CSB receive events that Bluedroid does not process, and use the linker's --wrap to override the Clock_Offset passed to HCI Create Connection for paging.
+// Forward CSB receive events that Bluedroid does not process, and use the linker's --wrap to override the Clock_Offset passed to HCI Create Connection for paging.
 
 #include "baseband.h"
 
@@ -24,7 +24,7 @@
 
 static const char *TAG = "wake_hci";
 
-// HCISet true only when command failure is allowed and error logging would delay monitoring.
+// Set true only when command failure is allowed and error logging would delay monitoring.
 volatile bool g_suppress_command_error_log;
 
 volatile bool g_command_pending;
@@ -32,11 +32,11 @@ volatile bool g_command_timed_out;
 
 volatile uint8_t g_command_status;
 static volatile uint16_t s_command_opcode;
-// Command CompleteSave up to eight bytes from p[5] onward in the Command Complete event.
-// HCI_SET_CLBUsed to check the transmit interval accepted by HCI_SET_CLB.
+// Save up to eight bytes from p[5] onward in the Command Complete event.
+// Used to check the transmit interval accepted by HCI_SET_CLB.
 uint8_t g_command_return[8];
 volatile uint8_t g_command_return_length;
-// bluedroidKeep Bluedroid's connection state machine, overriding only Clock_Offset immediately before sending HCI Create Connection.
+// Keep Bluedroid's connection state machine, overriding only Clock_Offset immediately before sending HCI Create Connection.
 static uint8_t s_hci_page_target[6];
 static volatile uint16_t s_hci_page_clock_offset;
 static volatile bool s_hci_page_armed;
@@ -122,8 +122,8 @@ static void command_complete(BT_HDR *response, void *context)
     if (response->len >= 6 && p[0] == HCI_COMMAND_COMPLETE_EVT &&
         (uint16_t)(p[3] | ((uint16_t)p[4] << 8)) == s_command_opcode) {
         g_command_status = p[5];
-        // HCI_SET_CLBHCI_SET_CLB returns the selected LT_ADDR and transmit interval in Command Complete.
-        // HCI_SET_CLBSave bytes starting at p[5] to compare the requested HCI_SET_CLB interval with the controller's accepted interval.
+        // HCI_SET_CLB returns the selected LT_ADDR and transmit interval in Command Complete.
+        // Save bytes starting at p[5] to compare the requested HCI_SET_CLB interval with the controller's accepted interval.
         uint16_t extra = (uint16_t)(response->len - 5);
         if (extra > sizeof(g_command_return)) {
             extra = (uint16_t)sizeof(g_command_return);
@@ -142,8 +142,8 @@ static void command_status(uint8_t status, BT_HDR *command, void *context)
     (void)context;
     g_command_status = status;
     g_command_pending = false;
-    // hci_layerhci_layer still references metadata after the callback returns.
-    // callbackSet the callback to NULL and let hci_layer release the command itself.
+    // hci_layer still references metadata after the callback returns.
+    // Set the callback to NULL and let hci_layer release the command itself.
     hci_cmd_metadata_t *const metadata = HCI_GET_CMD_METAMSG(command);
     metadata->command_status_cb = NULL;
 }
@@ -178,7 +178,7 @@ esp_err_t send_command_wait(uint16_t opcode, const uint8_t *params,
     hci_layer_get_interface()->transmit_command(
         p, command_complete, command_status, NULL);
 
-    // ESP-IDF hci_layerUse the same eight-second limit as COMMAND_PENDING_TIMEOUT in ESP-IDF hci_layer.
+    // Use the same eight-second limit as COMMAND_PENDING_TIMEOUT in ESP-IDF hci_layer.
     for (unsigned i = 0; i < 8000 && g_command_pending; ++i) {
         vTaskDelay(pdMS_TO_TICKS(1));
     }

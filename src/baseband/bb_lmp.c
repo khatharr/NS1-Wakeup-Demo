@@ -55,8 +55,8 @@ void lc_con_req_controller(void *arg)
     __asm__ __volatile__("memw" ::: "memory");
     hci_send_2_host(event_param);
     /*
-     * lc_env+0x56lc_env+0x56 is a flag indicating whether the host registered this link for management.
-     * HCI Connection RequestSince this function generates HCI Connection Request without ROM's registration procedure, the field retains its initial value of zero.
+     * lc_env+0x56 is a flag indicating whether the host registered this link for management.
+     * Since this function generates HCI Connection Request without ROM's registration procedure, the field retains its initial value of zero.
      *
      * - If zero, r_lc_rem_name_cont (0x4001f290) reads this field when name lookup completes, treats the link as temporary because HCI Connection Request was not registered with the host, and calls r_lc_detach.
      * - The link is released 2 ms after the name request.
@@ -120,9 +120,9 @@ void lc_version_req_controller(void *arg)
     const ke_msg_send_basic_fn_t ke_msg_send_basic =
         (ke_msg_send_basic_fn_t)ROM_KE_MSG_SEND_BASIC_ADDR;
     /*
-     * 0x516(timing accuracy)Do not send 0x516 (timing accuracy).
-     * lc_op_timacc_ind_handler(0x400292e4)lc_op_timacc_ind_handler (0x400292e4) unconditionally sends 0x518 to the same link's LC task, causing LMP_host_connection_req to be transmitted from here.
-     * ESP32If the ESP32 sends this request as the Bluetooth peripheral on an ACL link, it sends only Connection Complete rather than notifying the host with HCI Connection Request, so L2CAP disconnects the link.
+     * Do not send 0x516 (timing accuracy).
+     * lc_op_timacc_ind_handler (0x400292e4) unconditionally sends 0x518 to the same link's LC task, causing LMP_host_connection_req to be transmitted from here.
+     * If the ESP32 sends this request as the Bluetooth peripheral on an ACL link, it sends only Connection Complete rather than notifying the host with HCI Connection Request, so L2CAP disconnects the link.
      */
     ke_msg_send_basic(KE_MSG_LC_OP_FEAT_IND, lc_task_id, lc_task_id);
     ke_msg_send_basic(KE_MSG_LC_OP_VERS_IND, lc_task_id, lc_task_id);
@@ -137,20 +137,20 @@ void lc_version_req_controller(void *arg)
 }
 
 /*
- * SwitchFor 00 04 00 66 received from the Switch, ROM sends LMP_not_accepted (opcode 0, reason 0x19).
+ * For 00 04 00 66 received from the Switch, ROM sends LMP_not_accepted (opcode 0, reason 0x19).
  * Suppress only that response.
  *
- * lc_lmp_rx_ind_handler(0x40027d50)lc_lmp_rx_ind_handler (0x40027d50) calls r_ip_funcs_p+0x214 for a PDU it cannot interpret.
+ * lc_lmp_rx_ind_handler (0x40027d50) calls r_ip_funcs_p+0x214 for a PDU it cannot interpret.
  * Arguments are (link index, rejected opcode, reason, TID).
  * Hook this function pointer and suppress LMP_not_accepted when the opcode is 0.
  */
 #define IP_FUNCS_LC_SEND_PDU_NOT_ACCEPTED_INDEX (UINT16_C(0x214) / sizeof(void *))
 
 /*
- * ROMROM starts a packet-type exchange immediately after connection completion.
- * r_lc_con_cmpr_lc_con_cmp sends 0x517 to the link's LC task, and lc_op_pt_ind_handler calls r_lc_packet_type.
+ * ROM starts a packet-type exchange immediately after connection completion.
+ * r_lc_con_cmp sends 0x517 to the link's LC task, and lc_op_pt_ind_handler calls r_lc_packet_type.
  *
- * ESP32If the ESP32-initiated change overlaps the Switch's LMP_packet_type_table_req, it is rejected with Transaction Collision.
+ * If the ESP32-initiated change overlaps the Switch's LMP_packet_type_table_req, it is rejected with Transaction Collision.
  * If the packet-type exchange does not complete, the internal link state never becomes 1, the host's Read Remote Extended Features fails with status 0x02, and the link disconnects.
  */
 #define IP_FUNCS_LC_PACKET_TYPE_INDEX (UINT16_C(0x45c) / sizeof(void *))
@@ -205,8 +205,8 @@ static void IRAM_ATTR lc_send_pdu_not_accepted_hook(uint32_t link,
                                                     uint32_t tid)
 {
     /*
-     * opcode 0Opcode 0 is the rejection for 00 04 00 66 received from the Switch.
-     * opcode 0Suppress only opcode 0; pass rejections of other opcodes through to ROM.
+     * Opcode 0 is the rejection for 00 04 00 66 received from the Switch.
+     * Suppress only opcode 0; pass rejections of other opcodes through to ROM.
      */
     if ((opcode & 0xff) == 0) {
         g_lmp_not_accepted_suppressed++;
