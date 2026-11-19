@@ -105,16 +105,16 @@ static esp_err_t bluetooth_init(bool ns2_wake_only)
 
     // Set the link supervision timeout to 2 seconds.
     // With the default 20-second timeout, a Switch shutdown or sleep that stops responses takes 20 seconds to be recognized as a lost link.
-    // link 0Link 0 remains occupied, preventing the next wake-up transmission and paging request.
-    // 1Reducing the timeout to 1 second would disconnect the link even during temporary radio interference.
+    // Link 0 remains occupied, preventing the next wake-up transmission and paging request.
+    // Reducing the timeout to 1 second would disconnect the link even during temporary radio interference.
     // The unit is a 0.625 ms slot.
     BTM_SetDefaultLinkSuperTout(LINK_SUPERVISION_TIMEOUT_SLOTS);
 
-    // SwitchSet BR/EDR transmit power to ESP_PWR_LVL_P9 to provide enough range for the Switch to receive the wake-up signal.
+    // Set BR/EDR transmit power to ESP_PWR_LVL_P9 to provide enough range for the Switch to receive the wake-up signal.
     // The transmit-power field in the control structure is populated from rwip_rf+44, so this call also updates that structure.
     esp_bredr_tx_power_set(ESP_PWR_LVL_P9, ESP_PWR_LVL_P9);
 
-    // HOJAFollowing HOJA's order, configure CoD and SSP before registering the HID device.
+    // Following HOJA's order, configure CoD and SSP before registering the HID device.
     esp_bt_cod_t cod = {
         .minor = 0x02,   // Gamepad
         .major = 0x05,   // Peripheral
@@ -165,7 +165,7 @@ void app_main(void)
         g_restart_marker = 0;
         g_cycle_resume_after_boot = true;
     } else {
-        // RTCRTC memory has an undefined value at power-on. Treat any value other than the known marker in g_restart_marker as invalid.
+        // RTC memory has an undefined value at power-on. Treat any value other than the known marker in g_restart_marker as invalid.
         g_restart_marker = 0;
         g_cycle_wake_tries = 0;
     }
@@ -195,10 +195,10 @@ void app_main(void)
         ns2_wake_advertise_and_restart();
     }
 
-    // CSBCSB reception monitoring uses recording arrays and log formatting.
+    // CSB reception monitoring uses recording arrays and log formatting.
     xTaskCreate(swpro_uart_task, "uart_input", 4608, NULL, 5, NULL);
     xTaskCreatePinnedToCore(swpro_protocol_task, "switch_reports", 4096, NULL, 5, NULL, 0);
-    // Bluetooth ControllerThe Bluetooth controller runs on Core 1.
+    // The Bluetooth controller runs on Core 1.
     // Pin burst-detection polling to Core 0 so it does not compete with controller processing on the same core.
     xTaskCreatePinnedToCore(wake_tx_task, "wake_tx", 2560, NULL, 6, NULL, 0);
 }

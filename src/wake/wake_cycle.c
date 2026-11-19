@@ -29,7 +29,7 @@
 
 #define TAG "swpro"
 
-// CSBRestart every three cycles to reset CSB receive state.
+// Restart every three cycles to reset CSB receive state.
 #define CYCLE_SOFT_RETRY 3
 
 #define CYCLE_SOFT_RETRY_GAP_US INT64_C(2500000)
@@ -46,7 +46,7 @@ int64_t g_cycle_next_us;
 static const uint8_t k_cycle_wake_payload[15] = {
     0, 3, 0xFF, 6, 45, 10, 4, 3, 4, 0, 3, 140, 0, 15, 1};
 
-// CMD_CSB_RX payload: 22CMD_CSB_RX payload: 22-slot interval, six positions, 160 ms at each position.
+// CMD_CSB_RX payload: 22-slot interval, six positions, 160 ms at each position.
 static const uint8_t k_cycle_rx_payload[18] = {
     1, 22, 14, 0, 0, 140, 0, 1, 1, 1, 6, 16, 7, 1, 0, 0, 4, 0};
 
@@ -72,11 +72,11 @@ void connect_cycle_set(bool enabled)
     g_cycle_next_us = 0;
     if (enabled) {
         s_cycle_rounds = 0;
-        // RTCInitialize RTC memory because its value is undefined at power-on.
+        // Initialize RTC memory because its value is undefined at power-on.
         if (!g_cycle_resume_after_boot) {
             g_cycle_wake_tries = 0;
         }
-        // SwitchRemain discoverable so pairing can be recovered even if the user deletes pairing data only on the Switch.
+        // Remain discoverable so pairing can be recovered even if the user deletes pairing data only on the Switch.
         esp_bt_gap_set_scan_mode(ESP_BT_CONNECTABLE,
                                  ESP_BT_GENERAL_DISCOVERABLE);
         g_stay_disconnected = false;
