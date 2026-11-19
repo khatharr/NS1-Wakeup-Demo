@@ -8,16 +8,16 @@
 #include "esp_event.h"
 
 /**
- * @brief 入力レポートの長さ
+ * @brief Length of an input report
  *
- * モードに関わらず、レポートID 0x30を48バイトで送信する。
+ * Always send report ID 0x30 as 48 bytes, regardless of mode.
  */
 #define SWPRO_REPORT_SIZE 48
 
 /**
- * @brief 入力レポートの既定送信間隔をマイクロ秒で示す
+ * @brief Default input-report interval in microseconds
  *
- * @note GAPの通知に応じて、sniffモードでは送信間隔を延長する
+ * @note GAPIncrease the interval in sniff mode in response to GAP notifications
  */
 #define SWPRO_REPORT_INTERVAL_DEFAULT_US UINT32_C(8000)
 
@@ -30,11 +30,11 @@ typedef struct {
 } swpro_input_t;
 
 /**
- * @brief Bluetooth HIDデバイスを登録する
+ * @brief Bluetooth HIDRegister the Bluetooth HID device
  *
- * @param handler esp_hidのイベントループから呼び出されるコールバック
- *                swpro_link.cが提供する
- * @return ESP-IDFのステータスコード
+ * @param handler esp_hidCallback invoked by the esp_hid event loop
+ *                swpro_link.cProvided by swpro_link.c
+ * @return ESP-IDFESP-IDF status code
  */
 esp_err_t swpro_hid_register(esp_event_handler_t handler);
 
@@ -45,42 +45,42 @@ uint32_t swpro_hid_input_frames(void);
 void swpro_hid_send_report(void);
 
 /**
- * @brief 現在の入力レポート送信間隔をマイクロ秒で返す
+ * @brief Return the current input-report interval in microseconds
  *
- * @return 現在の送信間隔
- * @note GAPのモード変更に応じて値を更新する
+ * @return Current interval
+ * @note GAPUpdate in response to GAP mode changes
  */
 uint32_t swpro_hid_report_interval_us(void);
 
 /**
- * @brief 入力レポート送信間隔を設定する
+ * @brief Configure the input-report interval
  *
- * @param interval_us マイクロ秒単位の新しい送信間隔
+ * @param interval_us New interval in microseconds
  */
 void swpro_hid_set_report_interval_us(uint32_t interval_us);
 
 void swpro_hid_reset_session(void);
 
 /**
- * @brief Switchが送信した出力レポートを処理する
+ * @brief SwitchProcess an output report sent by the Switch
  *
- * @param report_id HIDレポートID
- * @param data レポートIDを除いたレポート本体
- * @param length dataのバイト数
- * @note レポートID 0x01のdataは次の配置とする
- * - data[0]はカウンタ
- * - data[1..8]は振動データ
- * - data[9]はサブコマンド
- * - data[10..]はサブコマンドの引数
+ * @param report_id HIDHID report ID
+ * @param data Report body, excluding report ID
+ * @param length dataNumber of bytes in data
+ * @note Report ID 0x01 has this data layout:
+ * - data[0]data[0] is the counter
+ * - data[1..8]data[1..8] is rumble data
+ * - data[9]data[9] is the subcommand
+ * - data[10..]data[10..] contains the subcommand arguments
  */
 void swpro_hid_handle_output(uint8_t report_id, const uint8_t *data,
                              uint16_t length);
 
 /**
- * @brief Switchが停止状態を要求したかどうかを返す
+ * @brief SwitchReturn whether the Switch has requested the stopped state
  *
- * @return サブコマンド0x06で状態0を受信した後はtrue、状態0を受信していない場合はfalse
- * @note Switchのスリープ移行中はtrueとなり、入力レポートを送信しない
+ * @return true after receiving state 0 in subcommand 0x06, otherwise false
+ * @note Switchtrue while the Switch enters sleep; do not send input reports
  */
 bool swpro_hid_host_stopped(void);
 
