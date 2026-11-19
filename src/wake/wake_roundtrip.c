@@ -32,7 +32,7 @@ void wake_try_receive(const uint8_t target[6], uint16_t interval)
     // Specify the expected receive time as an offset from the clock of the last burst.
     // The unit is a slot (625 us), matching the clock used by ld_csb_rx_sched.
     //
-    // SwitchThe Switch responds 2248 us after the ESP32 burst starts.
+    // The Switch responds 2248 us after the ESP32 burst starts.
     // Actual phase is the remainder after division by Interval, so searching every phase from 0 to Interval-1 covers all possibilities.
     const uint32_t clk = clkn >> 1;
     uint32_t next = (g_wake_last_clkn >> 1) + g_wake_rx_offset;
@@ -90,11 +90,11 @@ void wake_try_receive(const uint8_t target[6], uint16_t interval)
     switch1_csb_rx_stop(target, interval);
 }
 
-// CSBStop CSB reception and restart it offset slots after the clock of the last burst.
+// Stop CSB reception and restart it offset slots after the clock of the last burst.
 //
-// - Enable=1A start request with only Enable=1 succeeds only if CSB reception is already running.
-// - Because the schedule element is freed on supervision timeout, the second and later searches were rejected with status 0x0c.
-//   Inserting a stop step allows restarting from either state.
+// A start request with only Enable=1 succeeds only if CSB reception is already running.
+// Because the schedule element is freed on supervision timeout, the second and later searches were rejected with status 0x0c.
+// Inserting a stop step allows restarting from either state.
 static esp_err_t wake_restart_rx(uint16_t interval, uint8_t offset)
 {
     uint32_t clkn = 0;
@@ -109,7 +109,7 @@ static esp_err_t wake_restart_rx(uint16_t interval, uint8_t offset)
     return switch1_csb_rx_restart(interval, next & UINT32_C(0x0fffffff));
 }
 
-// CSBDelay between CSB receive restarts; two HCI round trips are required, so do not issue them back-to-back.
+// Delay between CSB receive restarts; two HCI round trips are required, so do not issue them back-to-back.
 #define RX_RESTART_INTERVAL_US 20000
 
 static void take_phase2_capture(void)
@@ -141,11 +141,11 @@ static void take_phase2_capture(void)
     g_direct_sync_valid = true;
 }
 
-// 1. SwitchWait for the Switch response.
-// 2. Transmit Phase 3, stop transmission, and begin paging.
-// 3. Detect responses by directly reading receive descriptors.
-//    HCIWaiting for HCI event round trips cannot meet the 634 us deadline from response to Phase 3.
-//    Because the transmit task switches to Phase 3, set a transmit-request flag and wait for completion.
+// Wait for the Switch response.
+// Transmit Phase 3, stop transmission, and begin paging.
+// Detect responses by directly reading receive descriptors.
+// Waiting for HCI event round trips cannot meet the 634 us deadline from response to Phase 3.
+// Because the transmit task switches to Phase 3, set a transmit-request flag and wait for completion.
 static uint32_t wake_roundtrip_run(const uint8_t target[6], uint16_t interval,
                                   uint8_t trigger, uint8_t bursts,
                                   uint32_t timeout_ms, bool page_after,
@@ -172,25 +172,25 @@ static uint32_t wake_roundtrip_run(const uint8_t target[6], uint16_t interval,
     int64_t detected_us = 0;
     const int64_t started = esp_timer_get_time();
     const int64_t until = started + (int64_t)timeout_ms * 1000;
-    // - SwitchThe phase of the Switch response relative to the ESP32 transmission changes on each attempt.
-    // - Using one fixed receive start position makes some attempts succeed and others fail.
-    // - 1Search by changing the receive position sequentially within one attempt.
+    // The phase of the Switch response relative to the ESP32 transmission changes on each attempt.
+    // Using one fixed receive start position makes some attempts succeed and others fail.
+    // Search by changing the receive position sequentially within one attempt.
     const uint8_t position_count = (positions != 0) ? positions : 1;
     uint8_t used_offset = base_offset;
     uint8_t tried = 0;
     uint8_t move_failures = 0;
     bool direct_capture_complete = false;
     int64_t yielded_us = started;
-    // - Continually read transmit and receive schedule elements throughout monitoring.
-    // - Receive priority only increases with scheduling failures; there is no path that decreases it.
-    //   When priority reaches 11, transmission cannot be scheduled, so check for priority >= 11.
+    // Continually read transmit and receive schedule elements throughout monitoring.
+    // Receive priority only increases with scheduling failures; there is no path that decreases it.
+    // When priority reaches 11, transmission cannot be scheduled, so check for priority >= 11.
     switch1_csb_sched_t sched = {0};
     switch1_csb_sched_t rx_live = {0};
     uint8_t rx_priority_max = 0;
     uint8_t tx_priority_max = 0;
     uint32_t sched_samples = 0;
     uint32_t rx_freed_samples = 0;
-    // CSBRestart CSB reception; space out requests because they require two HCI round trips.
+    // Restart CSB reception; space out requests because they require two HCI round trips.
     int64_t rx_restart_next_us = 0;
     uint32_t rx_restart_calls = 0;
     uint32_t rx_restart_ok = 0;
@@ -210,10 +210,10 @@ static uint32_t wake_roundtrip_run(const uint8_t target[6], uint16_t interval,
         tried++;
         const int64_t dwell_until =
             esp_timer_get_time() + (int64_t)dwell_ms * 1000;
-        // - descriptorDescriptor status persists until the descriptor is reused.
-        //   With a six-slot receive period, four descriptors make a 15 ms ring.
-        // - 200usPolling every 200 us prevents missing updates.
-        // - 10msYield CPU time to other tasks every 10 ms to avoid starving them.
+        // Descriptor status persists until the descriptor is reused.
+        // With a six-slot receive period, four descriptors make a 15 ms ring.
+        // Polling every 200 us prevents missing updates.
+        // Yield CPU time to other tasks every 10 ms to avoid starving them.
         while (esp_timer_get_time() < dwell_until &&
                esp_timer_get_time() < until) {
             switch1_csb_sched_read(&sched);
@@ -248,9 +248,9 @@ static uint32_t wake_roundtrip_run(const uint8_t target[6], uint16_t interval,
                 g_direct_clock_delta_valid && g_direct_sync_valid &&
                 g_direct_lt_addr >= 1 && g_direct_lt_addr <= 7;
             const bool direct_trigger = direct_response && trigger <= 1;
-            // - descriptorUse descriptor status only for recording the reception state.
-            // - Set the flag using the HCI event count.
-            //   Consecutive successful receptions store the same status, so counting status changes does not work.
+            // Use descriptor status only for recording the reception state.
+            // Set the flag using the HCI event count.
+            // Consecutive successful receptions store the same status, so counting status changes does not work.
             uint16_t status = 0;
             uint16_t header = 0;
             uint16_t pheader = 0;
@@ -263,7 +263,7 @@ static uint32_t wake_roundtrip_run(const uint8_t target[6], uint16_t interval,
             }
             // Set the flag when status changes to a value that passes the validity checks.
             // The beginning of a response burst train always changes from 6801 to 6800.
-            // HCIThe HCI event clock field is the scheduled receive time, not the arrival time, so it cannot be used for positioning.
+            // The HCI event clock field is the scheduled receive time, not the arrival time, so it cannot be used for positioning.
             if ((status != 0 || direct_trigger) &&
                 !g_wake_phase3_pending) {
                 if (first_us == 0) {
@@ -272,10 +272,10 @@ static uint32_t wake_roundtrip_run(const uint8_t target[6], uint16_t interval,
                 if (direct_trigger ||
                     (g_direct_clock_delta_valid &&
                      switch1_csb_rx_event_count() + 1 >= trigger)) {
-                    // - CSBThe transmit interval cannot be changed while CSB reception is enabled.
-                    //   Receive events reserve six slots around candidate transmit times; choosing a transmit period not divisible by six makes scheduling fail and stops transmission.
-                    // - Stop CSB reception as soon as the response is received.
-                    // - Read the hardware-measured receive time before stopping CSB reception.
+                    // The transmit interval cannot be changed while CSB reception is enabled.
+                    // Receive events reserve six slots around candidate transmit times; choosing a transmit period not divisible by six makes scheduling fail and stops transmission.
+                    // Stop CSB reception as soon as the response is received.
+                    // Read the hardware-measured receive time before stopping CSB reception.
                     uint32_t rx_clk = g_direct_rx_clk;
                     uint16_t rx_bitoff = g_direct_rx_bitoff;
                     uint16_t rx_raw = g_direct_rx_bitoff;
@@ -296,13 +296,13 @@ static uint32_t wake_roundtrip_run(const uint8_t target[6], uint16_t interval,
                     const int64_t before = esp_timer_get_time();
                     // If stop is rejected with status=0x0C, transition to Phase 3 while CSB reception is still active.
                     // Stopping again would cost 17 ms in HCI round trips and shift Phase 3 away from the response burst; just record the result and continue.
-                    // CSBThe next attempt's switch1_csb_rx_start handles stopping CSB reception.
+                    // The next attempt's switch1_csb_rx_start handles stopping CSB reception.
                     g_wake_rx_stop_err = switch1_csb_rx_stop(target,
                                                                  interval);
                     detected_us = esp_timer_get_time();
-                    // - If a response timestamp was captured, schedule Phase 3 at timestamp + 634 us.
-                    // - The transmit period determines the slot, and control structure +0x02 determines the position within the slot.
-                    // - Responses repeat every six slots, so add multiples of six until the target is at least four slots after the next transmission.
+                    // If a response timestamp was captured, schedule Phase 3 at timestamp + 634 us.
+                    // The transmit period determines the slot, and control structure +0x02 determines the position within the slot.
+                    // Responses repeat every six slots, so add multiples of six until the target is at least four slots after the next transmission.
                     uint32_t target_slot = 0;
                     uint16_t target_bitoff = 0;
                     const bool phase3_target_available =
@@ -344,7 +344,7 @@ static uint32_t wake_roundtrip_run(const uint8_t target[6], uint16_t interval,
                     direct_capture_complete =
                         direct_trigger && g_wake_phase3_rounds == 1;
                     // Log only after setting the flag.
-                    // 115200bpsUART output at 115200 bps takes about 10 ms per line, which would all add to the response-to-Phase-3 delay if logged before setting the flag.
+                    // UART output at 115200 bps takes about 10 ms per line, which would all add to the response-to-Phase-3 delay if logged before setting the flag.
                     // The transmit task runs on a different core, so logging here does not block Phase 3 transmission.
                     ESP_LOGI(TAG,
                              "  Response detected; stopping receive (%lldus) "
@@ -365,7 +365,7 @@ static uint32_t wake_roundtrip_run(const uint8_t target[6], uint16_t interval,
             if (direct_response && hits == 0) {
                 hits = 1;
             }
-            // ESP32Once the ESP32 has captured the body and receive time, do not move the receive position until Phase 3 uses those values.
+            // Once the ESP32 has captured the body and receive time, do not move the receive position until Phase 3 uses those values.
             if (direct_capture_complete || g_wake_phase3_done_us != 0) {
                 break;
             }
@@ -392,7 +392,7 @@ static uint32_t wake_roundtrip_run(const uint8_t target[6], uint16_t interval,
         }
         vTaskDelay(1);
     }
-    // ROMStop CSB reception before returning to the ROM callback.
+    // Stop CSB reception before returning to the ROM callback.
     // Capturing the Phase 2 body uses the receive context of link 0 allocated by page scan, so its completed descriptor is not freed.
     // Returning to the ROM callback without freeing the completed descriptor causes an assertion because activity is not 13.
     if (switch1_csb_rx_is_active()) {
@@ -439,7 +439,7 @@ static uint32_t wake_roundtrip_run(const uint8_t target[6], uint16_t interval,
                 g_direct_handoff_deadline_us = 0;
             }
         }
-        // ACLDo not start paging if direct ACL connection initialization succeeded.
+        // Do not start paging if direct ACL connection initialization succeeded.
         // Paging is only a fallback used when the deadline expires.
         if (!direct_path) {
             const int64_t page_not_before = sent_us + 20000;
@@ -559,7 +559,7 @@ static uint32_t wake_roundtrip_run(const uint8_t target[6], uint16_t interval,
         g_wake_stop_requested = true;
     }
     // Wait until the transmit task stops.
-    // g_wake_tx_activeg_wake_tx_active becomes false immediately after stop confirmation, so there is no need to wait for subsequent logging.
+    // g_wake_tx_active becomes false immediately after stop confirmation, so there is no need to wait for subsequent logging.
     const int64_t stop_until = esp_timer_get_time() + 3000000;
     while (g_wake_tx_active && esp_timer_get_time() < stop_until) {
         vTaskDelay(pdMS_TO_TICKS(1));
@@ -573,7 +573,7 @@ static uint32_t wake_roundtrip_run(const uint8_t target[6], uint16_t interval,
     // After the specified attempt count, CYCLE_PAGE_WAIT starts paging.
     if (g_cycle_enabled && g_cycle_wake_tries < CYCLE_WAKE_TRIES) {
         // Also prevent periodic reconnection from starting paging.
-        // CMD_CSB_RXCMD_CSB_RX paging options clear the reconnection-disable flag, so restore it here or paging starts a few hundred ms later.
+        // CMD_CSB_RX paging options clear the reconnection-disable flag, so restore it here or paging starts a few hundred ms later.
         g_reconnect_disabled = true;
         g_reconnect_paused = true;
         ESP_LOGI(TAG,
@@ -586,11 +586,11 @@ static uint32_t wake_roundtrip_run(const uint8_t target[6], uint16_t interval,
     return hits;
 }
 
-// UARTHandle UART command CMD_CSB_RX.
+// Handle UART command CMD_CSB_RX.
 //
-// 1. CSBStart CSB reception.
-// 2. SwitchOn detecting a Switch response, move to Phase 3 transmission and direct ACL link initialization.
-// 3. Monitor reception settings and status because the transmit task handles the response-to-Phase-3 transition.
+// Start CSB reception.
+// On detecting a Switch response, move to Phase 3 transmission and direct ACL link initialization.
+// Monitor reception settings and status because the transmit task handles the response-to-Phase-3 transition.
 void wake_cmd_receive(const uint8_t *payload, uint8_t length)
 {
     if (length < 1 || length > 23) {
@@ -640,7 +640,7 @@ void wake_cmd_receive(const uint8_t *payload, uint8_t length)
             g_direct_lt_addr = payload[22];
         }
         // Pass the receive start time in slots.
-        // ld_csb_rx_schedld_csb_rx_sched derives receive phase from the remainder modulo Interval.
+        // ld_csb_rx_sched derives receive phase from the remainder modulo Interval.
         // During wake-up transmission, specify an offset from the last burst's clock.
         // Responses track transmit bursts, so matching receive position is impossible without this offset.
         const uint32_t clk = clkn >> 1;
@@ -651,11 +651,11 @@ void wake_cmd_receive(const uint8_t *payload, uint8_t length)
             while ((int32_t)(next - clk) < 4) {
                 next += interval;
             }
-            // payload[3]If payload[3] is nonzero, shift the piconet clock so the whitening seed becomes zero.
+            // If payload[3] is nonzero, shift the piconet clock so the whitening seed becomes zero.
             // The seed is the low six bits of the slot clock, so align to a multiple of 64.
             // Receive timing is unchanged because phase includes Clock_Offset.
             if (length >= 4 && payload[3] != 0) {
-                // payload[6]payload[6] is a correction term; permit searching values 0-63 if the calculated offset does not match.
+                // payload[6] is a correction term; permit searching values 0-63 if the calculated offset does not match.
                 const uint32_t correction =
                     (length >= 7) ? (payload[6] & 0x3Fu) : 0u;
                 offset = (64u - (next & 0x3Fu) + correction) & 0x3Fu;
@@ -675,8 +675,8 @@ void wake_cmd_receive(const uint8_t *payload, uint8_t length)
         err = switch1_csb_rx_start(host, switch1_wakeup_parity34(host),
                                    interval, offset, next, 0);
         if (err == ESP_OK) {
-            // CSBRead the CSB receive schedule element immediately after starting.
-            // ld_csb_rx_sched(0x400391f0)ld_csb_rx_sched (0x400391f0) frees the element once elapsed time reaches supervision timeout; knowing the reference clock lets us calculate when.
+            // Read the CSB receive schedule element immediately after starting.
+            // ld_csb_rx_sched (0x400391f0) frees the element once elapsed time reaches supervision timeout; knowing the reference clock lets us calculate when.
             switch1_csb_sched_t started_sched;
             switch1_csb_sched_read(&started_sched);
             uint32_t clkn_now = 0;
@@ -706,13 +706,13 @@ void wake_cmd_receive(const uint8_t *payload, uint8_t length)
                 (uint16_t)((g_wake_length > 183 ? 5 : 3) * 625 -
                            CSB_TX_DECLARED_MARGIN_US));
         }
-        // payload[4]payload[4] specifies LT_ADDR; default to 0 if omitted.
-        // 00 matches the Switch response but is also a broadcast address, so make it configurable to test whether the receiver rejects it.
+        // payload[4] specifies LT_ADDR; default to 0 if omitted.
+        // 0 matches the Switch response but is also a broadcast address, so make it configurable to test whether the receiver rejects it.
         if (err == ESP_OK && length >= 5) {
             switch1_csb_rx_write_ltaddr(payload[4]);
         }
-        // payload[3]Values 2-28 in payload[3] are treated as CSB receive frame formats.
-        // ACLACL frame formats use the processing path that stores received payloads.
+        // Values 2-28 in payload[3] are treated as CSB receive frame formats.
+        // ACL frame formats use the processing path that stores received payloads.
         if (err == ESP_OK && length >= 4 && payload[3] >= 2) {
             switch1_csb_rx_set_format(payload[3]);
             ESP_LOGI(TAG, "CSB receive frame format set to %u",
@@ -721,22 +721,22 @@ void wake_cmd_receive(const uint8_t *payload, uint8_t length)
     } else {
         err = switch1_csb_rx_stop(host, interval);
     }
-    // control structureCapture the control-structure snapshot here, but do not print it until after monitoring.
+    // Capture the control-structure snapshot here, but do not print it until after monitoring.
     // A Switch response can arrive immediately after enabling reception; printing three UART lines (about 25 ms) would delay detection and shift Phase 3 away from its response burst.
     switch1_csb_rx_dump(0, 8, after);
 
     if (payload[0] != 0 && err == ESP_OK) {
         // Detect reception by reading descriptors directly.
-        // HCIThis detects reception even when no HCI event is produced, and unlike UART-based reads does not miss state transitions.
+        // This detects reception even when no HCI event is produced, and unlike UART-based reads does not miss state transitions.
         // Poll without waiting so this can also run during transmission.
-        // payload[5]payload[5] sets monitoring time in 10 ms units; default is 600 ms.
+        // payload[5] sets monitoring time in 10 ms units; default is 600 ms.
         const uint32_t watch_ms =
             (length >= 6 && payload[5] != 0)
                 ? (uint32_t)payload[5] * 10u
                 : 600u;
-        // payload[7]If payload[7] is nonzero, after that many responses switch to Phase 3, stop transmitting, and start paging.
-        // 0If zero, record reception state only and leave transmit settings unchanged.
-        // payload[8]payload[8] is the Phase 3 burst count; [9] enables paging; [10] is the number of receive positions; [11] is the dwell time at each position, in 10 ms units.
+        // If payload[7] is nonzero, after that many responses switch to Phase 3, stop transmitting, and start paging.
+        // If zero, record reception state only and leave transmit settings unchanged.
+        // payload[8] is the Phase 3 burst count; [9] enables paging; [10] is the number of receive positions; [11] is the dwell time at each position, in 10 ms units.
         const uint8_t trigger = (length >= 8) ? payload[7] : 0;
         if (trigger != 0 && g_wake_started) {
             const uint8_t bursts =
@@ -750,24 +750,24 @@ void wake_cmd_receive(const uint8_t *payload, uint8_t length)
                 (length >= 12 && payload[11] != 0)
                     ? (uint32_t)payload[11] * 10u
                     : watch_ms;
-            // payload[12]payload[12] is the transmit interval during Phase 3, in slots.
+            // payload[12] is the transmit interval during Phase 3, in slots.
             // Choosing seven, coprime with the Phase 1 period of six, shifts the response-relative timing by one slot per burst.
             g_wake_phase3_step =
                 (length >= 13 && payload[12] != 0) ? payload[12] : 7;
-            // payload[13]payload[13] is the number of position-search repetitions.
+            // payload[13] is the number of position-search repetitions.
             g_wake_phase3_rounds =
                 (length >= 14 && payload[13] != 0) ? payload[13] : 1;
             g_wake_phase3_rounds_done = 0;
-            // payload[14]payload[14] is the slot-boundary offset in units of 4 us.
+            // payload[14] is the slot-boundary offset in units of 4 us.
             g_wake_phase3_bitoff =
                 (length >= 15) ? (uint16_t)payload[14] * 4u : 0u;
-            // payload[15]payload[15] is a slot-based correction relative to the response timestamp.
+            // payload[15] is a slot-based correction relative to the response timestamp.
             g_wake_phase3_target_slot_adjustment =
                 (length >= 16) ? payload[15] : 0;
-            // payload[16]payload[16] is the number of slots between stopping Phase 1 and transmitting Phase 3.
+            // payload[16] is the number of slots between stopping Phase 1 and transmitting Phase 3.
             g_wake_phase3_gap =
                 (length >= 17 && payload[16] != 0) ? payload[16] : 4;
-            // payload[17]payload[17] is the maximum time Phase 1 keeps transmitting at full speed after response reception before switching to Phase 3, in 10 ms units.
+            // payload[17] is the maximum time Phase 1 keeps transmitting at full speed after response reception before switching to Phase 3, in 10 ms units.
             g_wake_phase3_hold_ms =
                 (length >= 18) ? (uint16_t)payload[17] * 10u : 0u;
             wake_roundtrip_run(host, interval, trigger, bursts, watch_ms,

@@ -68,8 +68,8 @@ void wake_tx_task(void *argument)
                     continue;
                 }
                 /*
-                 * HCIHCI rejects transmit intervals shorter than packet slot count + 3.
-                 * - DH5For DH5, the minimum is eight slots (5 ms).
+                 * HCI rejects transmit intervals shorter than packet slot count + 3.
+                 * - For DH5, the minimum is eight slots (5 ms).
                  * - To use six slots (3.75 ms), directly change the schedule-element transmit period after starting.
                  */
                 if (g_wake_real_interval != 0) {
@@ -115,7 +115,7 @@ void wake_tx_task(void *argument)
                     /*
                      * - If the receive timestamp is unavailable, change the transmit interval to seven slots and send successive Phase 3 bursts.
                      * - Responses recur every six slots, so the transmit position relative to the response advances one slot per burst.
-                     * - 6Six bursts traverse all six positions.
+                     * - Six bursts traverse all six positions.
                      */
                     int32_t phase3_interval_slots = g_wake_phase3_step;
                     uint32_t scheduled_tx_slot = UINT32_MAX;
@@ -156,8 +156,8 @@ void wake_tx_task(void *argument)
                             g_wake_phase3_schedule_slot = scheduled_tx_slot;
                             /*
                              * - When Phase 3 timing is fixed, also register page-scan reception immediately afterward.
-                             * - 3If the event is not at least three slots ahead, the scheduler adjusts the start time.
-                             * - ACLIf an ACL link is already established, do not start direct ACL registration because it would recreate the same link 0.
+                             * - If the event is not at least three slots ahead, the scheduler adjusts the start time.
+                             * - If an ACL link is already established, do not start direct ACL registration because it would recreate the same link 0.
                              */
                             if (!g_direct_handoff_disabled &&
                                 !g_acl_connected &&
@@ -207,9 +207,9 @@ void wake_tx_task(void *argument)
                 switch (g_wake_state) {
                 case WAKE_BURST_WAIT_CLEAR:
                     /*
-                     * - CSBImmediately after CSB starts, the descriptor may already be nonzero.
-                     * - descriptorFirst observe it becoming zero, then detect the next rising edge.
-                     * - 0If the transition to zero is missed, advance to the next state when the transmit interval elapses.
+                     * - Immediately after CSB starts, the descriptor may already be nonzero.
+                     * - First observe it becoming zero, then detect the next rising edge.
+                     * - If the transition to zero is missed, advance to the next state when the transmit interval elapses.
                      */
                     if (!descriptor_present ||
                         now_us - g_wake_burst_start_us >=
@@ -220,7 +220,7 @@ void wake_tx_task(void *argument)
 
                 case WAKE_BURST_WAIT_START:
                     /*
-                     * - descriptorIf the descriptor rising edge is missed, that burst is sent with the previous burst's payload.
+                     * - If the descriptor rising edge is missed, that burst is sent with the previous burst's payload.
                      * - If no rising edge is detected within one transmit interval, treat elapsed time as the burst boundary.
                      * - The index is still calculated from the clock read at that point, preserving variant alignment.
                      */
@@ -231,8 +231,8 @@ void wake_tx_task(void *argument)
                     }
                     /*
                      * - Do not use the elapsed-time boundary path for a Phase 3 burst.
-                     * - descriptorSending without a descriptor prevents updates to the header and payload header, so length and LLID would remain from Phase 1.
-                     * - descriptorWait until the descriptor becomes nonzero.
+                     * - Sending without a descriptor prevents updates to the header and payload header, so length and LLID would remain from Phase 1.
+                     * - Wait until the descriptor becomes nonzero.
                      */
                     if (!descriptor_present && g_wake_phase3_pending) {
                         break;
@@ -241,8 +241,8 @@ void wake_tx_task(void *argument)
                         g_wake_forced_starts++;
                     }
                     /*
-                     * - descriptorTreat the descriptor becoming nonzero as the start time for this burst.
-                     * - ROMROM reapplies normal parity and channel, so reapply wake-up settings here.
+                     * - Treat the descriptor becoming nonzero as the start time for this burst.
+                     * - ROM reapplies normal parity and channel, so reapply wake-up settings here.
                      * - Otherwise the access code is reset to its normal value.
                      */
                     switch1_csb_wake_refresh();
@@ -285,7 +285,7 @@ void wake_tx_task(void *argument)
                     if (g_wake_in_phase3 && g_wake_phase3_raw) {
                         /*
                          * - Hardware also whitens the packet header and payload header.
-                         * - control structureDisable whitening in the control structure to send the written payload unchanged.
+                         * - Disable whitening in the control structure to send the written payload unchanged.
                          * - Write the plain payload rather than the pre-whitened cancellation variant.
                          */
                         switch1_csb_tx_set_whitening_disable(true);
@@ -300,7 +300,7 @@ void wake_tx_task(void *argument)
                         /*
                          * - Hardware whitens the payload header, which cannot be cancelled from the transmitter side.
                          * - The length field determines the number of bytes actually transmitted.
-                         * - LLIDSetting LLID to anything other than 1 or 2 triggers baseband ASSERT_PARAM(8 0).
+                         * - Setting LLID to anything other than 1 or 2 triggers baseband ASSERT_PARAM(8 0).
                          * - As a result, only the payload header is whitened over the air.
                          */
                         switch1_csb_write_descriptor(g_wake_phase3_header,
@@ -318,7 +318,7 @@ void wake_tx_task(void *argument)
                                 g_wake_phase3_limit) {
                             /*
                              * - After Phase 3, stop sending; keep CSB transmission stopped during the 21 ms before paging begins.
-                             * - CSBStopping CSB takes several ms of HCI exchanges, during which Phase 1 may retransmit; move the next transmit time sufficiently far ahead.
+                             * - Stopping CSB takes several ms of HCI exchanges, during which Phase 1 may retransmit; move the next transmit time sufficiently far ahead.
                              */
                             if (switch1_csb_tx_set_interval(
                                     g_wake_shift_interval,
@@ -350,7 +350,7 @@ void wake_tx_task(void *argument)
                             g_wake_clock_failures_run = 0;
                             /*
                              * - The targeted transmission begins lead_slots after descriptor appearance; add that to CLKN when calculating the index.
-                             * - CLKNCLKN is measured in 312.5 us units, so one slot corresponds to two counts.
+                             * - CLKN is measured in 312.5 us units, so one slot corresponds to two counts.
                              */
                             uint8_t basis = g_wake_variant_start;
                             if (g_wake_sweep) {
@@ -386,7 +386,7 @@ void wake_tx_task(void *argument)
                     /*
                      * - Writing to a burst while it is transmitting changes its payload midway through that burst.
                      * - Wait until the radio is not transmitting.
-                     * - descriptorDescriptor disappearance does not coincide with transmission end, so use elapsed time rather than the descriptor to identify the quiet period.
+                     * - Descriptor disappearance does not coincide with transmission end, so use elapsed time rather than the descriptor to identify the quiet period.
                      */
                     const int64_t elapsed = now_us - g_wake_burst_start_us;
                     if (elapsed < g_wake_write_delay_us) {
@@ -421,7 +421,7 @@ void wake_tx_task(void *argument)
                     }
                     /*
                      * - During the Phase 3 burst, wait until the descriptor has been freed.
-                     * - descriptorThe controller frees the descriptor after scheduling the transmission; advancing too early would mistake that existing descriptor for the next burst's rising edge.
+                     * - The controller frees the descriptor after scheduling the transmission; advancing too early would mistake that existing descriptor for the next burst's rising edge.
                      * - Limit the wait to 4 ms.
                      */
                     if (g_wake_in_phase3 && g_wake_phase3_pending) {
@@ -438,7 +438,7 @@ void wake_tx_task(void *argument)
                     /*
                      * - Record the completion time after the required number of Phase 3 bursts triggered by a detected response.
                      * - Data written here is transmitted lead_slots after descriptor appearance; transmitting a 12-byte DM1 takes about 400 us.
-                     * - UARTAfter that timestamp, the UART task stops reception and moves to paging.
+                     * - After that timestamp, the UART task stops reception and moves to paging.
                      */
                     if (g_wake_in_phase3 && g_wake_phase3_pending &&
                         g_wake_phase3_done_us == 0 &&
@@ -481,7 +481,7 @@ void wake_tx_task(void *argument)
                          */
                         g_wake_deadline_us = g_wake_phase3_done_us;
                         /*
-                         * - ACLIf direct ACL registration has started, do not re-register wake-up reception after transmission completes.
+                         * - If direct ACL registration has started, do not re-register wake-up reception after transmission completes.
                          * - ACL and CSB reception share the receive-descriptor ring buffer and index, so continuing wake-up reception would conflict with ACL reception.
                          */
                         if (g_direct_handoff_started) {

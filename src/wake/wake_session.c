@@ -27,7 +27,7 @@ uint8_t g_wake_target[6];
 uint64_t g_wake_target_bch;
 uint8_t g_wake_channel;
 uint16_t g_wake_interval;
-// HCISet a short transmit interval directly in the control structure when HCI cannot configure it; 0 means unchanged.
+// Set a short transmit interval directly in the control structure when HCI cannot configure it; 0 means unchanged.
 uint16_t g_wake_real_interval;
 uint16_t g_wake_length;
 volatile bool g_wake_tx_active;
@@ -36,7 +36,7 @@ volatile int64_t g_wake_deadline_us;
 
 uint8_t g_wake_variants[32][SWITCH1_CSB_DATA_MAX];
 uint8_t g_wake_phase3[32][WAKE_PHASE3_LENGTH];
-// ControllerPhase 3 payload used when controller whitening is disabled.
+// Phase 3 payload used when controller whitening is disabled.
 uint8_t g_wake_phase3_plain[WAKE_PHASE3_LENGTH];
 bool g_wake_phase3_raw;
 uint16_t g_wake_phase3_ms;
@@ -54,9 +54,9 @@ volatile bool g_wake_phase3_pending;
 volatile uint32_t g_wake_phase3_schedule_slot = UINT32_MAX;
 volatile uint32_t g_wake_phase3_actual_slot;
 volatile uint8_t g_wake_phase3_limit;
-// 6A transmit period coprime with 6 shifts the transmit position relative to the response by one slot per burst.
+// A transmit period coprime with 6 shifts the transmit position relative to the response by one slot per burst.
 volatile uint8_t g_wake_phase3_step;
-// SwitchNumber of times to repeat transmit-position searching in case the response is detected just before it ends.
+// Number of times to repeat transmit-position searching in case the response is detected just before it ends.
 volatile uint8_t g_wake_phase3_rounds;
 volatile uint8_t g_wake_phase3_rounds_done;
 // Offset from the slot boundary (us).
@@ -65,7 +65,7 @@ volatile uint8_t g_wake_phase3_target_slot_adjustment;
 volatile uint32_t g_wake_phase3_target_slot;
 volatile uint8_t g_wake_phase3_gap;
 volatile uint16_t g_wake_phase3_hold_ms;
-// esp_timer_get_time()Transmission completion timestamp from esp_timer_get_time(); 0 means not yet transmitted.
+// Transmission completion timestamp from esp_timer_get_time(); 0 means not yet transmitted.
 volatile int64_t g_wake_phase3_done_us;
 volatile int64_t g_wake_rx_detect_us;
 volatile esp_err_t g_wake_rx_stop_err;
@@ -77,11 +77,11 @@ uint32_t g_wake_burst_index;
 wake_state_t g_wake_state;
 int64_t g_wake_burst_start_us;
 uint8_t g_wake_next_index;
-// descriptorOffset of the payload in shared memory, used while the descriptor is unavailable.
+// Offset of the payload in shared memory, used while the descriptor is unavailable.
 uint16_t g_wake_payload_offset;
-// descriptorDelay between descriptor appearance and writing the payload.
+// Delay between descriptor appearance and writing the payload.
 uint32_t g_wake_write_delay_us;
-// descriptorNumber of slots between descriptor appearance and the corresponding transmission.
+// Number of slots between descriptor appearance and the corresponding transmission.
 uint8_t g_wake_lead_slots;
 bool g_wake_sweep;
 int64_t g_wake_start_us;
@@ -106,14 +106,14 @@ uint32_t g_wake_write_failures;
 void wake_finish_tx(const char *reason)
 {
     const bool was_active = g_wake_tx_active;
-    // SwitchDo not delay resuming connection requests in case the Switch is already awake.
+    // Do not delay resuming connection requests in case the Switch is already awake.
     if (was_active) {
         g_next_reconnect_us = 0;
     }
     if (g_wake_phase3_raw) {
         switch1_csb_tx_set_whitening_disable(false);
     }
-    // descriptorRestore the transmit interval even if processing finished before updating the descriptor.
+    // Restore the transmit interval even if processing finished before updating the descriptor.
     if (g_wake_shift_interval != 0 &&
         g_wake_shift_interval != UINT16_MAX) {
         switch1_csb_tx_set_interval(g_wake_shift_interval,
@@ -123,13 +123,13 @@ void wake_finish_tx(const char *reason)
     if (g_wake_phase3_bitoff != 0) {
         switch1_csb_tx_set_bit_offset(0);
     }
-    // CSBSetting false before CSB is stopped would make the next start request conflict with cleanup.
+    // Setting false before CSB is stopped would make the next start request conflict with cleanup.
     const esp_err_t stop_err = switch1_csb_wake_stop_wait();
     if (stop_err != ESP_OK) {
         ESP_LOGE(TAG, "Wake transmission: CSB stop did not complete: %s",
                  esp_err_to_name(stop_err));
         g_reconnect_paused = true;
-        // HCIAfter an HCI timeout, the transmit wait queue cannot be recovered through public APIs; reboot while preserving NVS.
+        // After an HCI timeout, the transmit wait queue cannot be recovered through public APIs; reboot while preserving NVS.
         vTaskDelay(pdMS_TO_TICKS(100));
         esp_restart();
     }
@@ -198,48 +198,48 @@ void wake_cmd_start(const uint8_t *payload, uint8_t length)
     const uint8_t channel = payload[0];
     const uint8_t seconds = payload[1];
     const uint8_t whiten_seed = payload[2];
-    // payload[4]: payload[4]: payload length divided by 4; 0 means 339 bytes.
+    // payload[4]: payload length divided by 4; 0 means 339 bytes.
     const uint16_t body_length =
         (length >= 5 && payload[4] != 0)
             ? (uint16_t)(payload[4] * 4)
             : (uint16_t)SWITCH1_CSB_DATA_MAX;
-    // payload[3]: payload[3]: transmit interval in slots; 0 means 64 slots.
+    // payload[3]: transmit interval in slots; 0 means 64 slots.
     const uint16_t interval =
         (length >= 4 && payload[3] != 0) ? payload[3]
                                          : WAKE_CSB_RAW_INTERVAL;
-    // payload[5]: payload[5]: value added to whitening-sequence index calculation; 0xFF uses payload[2] as a fixed value.
+    // payload[5]: value added to whitening-sequence index calculation; 0xFF uses payload[2] as a fixed value.
     const uint8_t variant_selector =
         (length >= 6) ? payload[5] : WAKE_VARIANT_START_NONE;
     const bool variant_sweep = variant_selector == WAKE_VARIANT_SWEEP;
     const bool variant_enabled =
         variant_selector != WAKE_VARIANT_START_NONE;
-    // payload[6]: descriptorpayload[6]: slots between descriptor appearance and transmission; 0 means four slots.
-    // payload[7]: descriptorpayload[7]: delay between descriptor appearance and writing, in 100 us units; 0 means automatic.
+    // payload[6]: slots between descriptor appearance and transmission; 0 means four slots.
+    // payload[7]: delay between descriptor appearance and writing, in 100 us units; 0 means automatic.
     const uint8_t lead_slots =
         (length >= 7 && payload[6] != 0) ? payload[6]
                                          : WAKE_LEAD_SLOTS_DEFAULT;
     const uint32_t write_delay_us =
         (length >= 8) ? (uint32_t)payload[7] * 100u : 0u;
-    // payload[8]: payload[8]: unused.
-    // payload[9]: payload[9]: Phase 3 transmit duration before stopping, in 10 ms units; 0 transmits only after response detection.
-    // payload[10]: payload[10]: Phase 3 LLID; 0 means LLID 2.
+    // payload[8]: unused.
+    // payload[9]: Phase 3 transmit duration before stopping, in 10 ms units; 0 transmits only after response detection.
+    // payload[10]: Phase 3 LLID; 0 means LLID 2.
     const uint16_t phase3_ms =
         (length >= 10) ? (uint16_t)payload[9] * 10u : 0u;
     const uint8_t phase3_llid =
         (length >= 11 && payload[10] != 0) ? payload[10]
                                            : WAKE_PHASE3_LLID_DEFAULT;
-    // payload[11]: payload[11]: transmit duration in 10 ms units; if nonzero, overrides payload[1].
+    // payload[11]: transmit duration in 10 ms units; if nonzero, overrides payload[1].
     const uint32_t total_ms =
         (length >= 12 && payload[11] != 0)
             ? (uint32_t)payload[11] * 10u
             : (uint32_t)seconds * 1000u;
-    // payload[12]: 0payload[12]: if nonzero, receive using the wake-up access code after transmission stops.
+    // payload[12]: if nonzero, receive using the wake-up access code after transmission stops.
     const bool receive_after = length >= 13 && payload[12] != 0;
-    // payload[13]: payload[13]: receive start time offset; default if omitted.
+    // payload[13]: receive start time offset; default if omitted.
     const uint8_t rx_offset =
         length >= 14 ? payload[13] : WAKE_RX_OFFSET_DEFAULT;
 
-    // ControllerThe controller enforces minimum intervals per packet type; only check for an even number of slots here.
+    // The controller enforces minimum intervals per packet type; only check for an even number of slots here.
     if (interval < 2 || (interval & 1) != 0) {
         ESP_LOGE(TAG, "Wake transmission: invalid interval: %u slots",
                  interval);
@@ -307,7 +307,7 @@ void wake_cmd_start(const uint8_t *payload, uint8_t length)
     }
     wake_build_phase1_variants(target_addr, (uint8_t *)g_wake_variants,
                                 SWITCH1_CSB_DATA_MAX, body_length);
-    // payload[18]~[23]: payload[18] through [23]: BD_ADDR transmitted in Phase 3; default is the ESP32 BD_ADDR.
+    // payload[18] through [23]: BD_ADDR transmitted in Phase 3; default is the ESP32 BD_ADDR.
     const uint8_t *phase3_addr = local_addr;
     uint8_t phase3_addr_buf[6];
     if (length >= 24) {
@@ -323,7 +323,7 @@ void wake_cmd_start(const uint8_t *payload, uint8_t length)
     wake_build_phase3(phase3_addr, g_wake_phase3,
                        g_wake_phase3_plain);
     g_wake_phase3_ms = phase3_ms;
-    // LLID 3For LLID 3, use LT_ADDR 0 and no whitening; for LLID 1 or 2, use LT_ADDR 1 and whitening cancellation.
+    // For LLID 3, use LT_ADDR 0 and no whitening; for LLID 1 or 2, use LT_ADDR 1 and whitening cancellation.
     g_wake_phase3_raw =
         (length >= 15) ? (payload[14] != 0) : (phase3_llid == 3);
     g_wake_phase3_header =
@@ -331,7 +331,7 @@ void wake_cmd_start(const uint8_t *payload, uint8_t length)
             ? WAKE_PHASE3_HEADER
             : (uint16_t)((WAKE_PHASE3_HEADER &
                           ~UINT16_C(0x0007)) | 1);
-    // payload[24]~[25]: descriptor +0x02payload[24] and [25]: Phase 3 header word written to descriptor +0x02.
+    // payload[24] and [25]: Phase 3 header word written to descriptor +0x02.
     if (length >= 26) {
         g_wake_phase3_header =
             (uint16_t)(payload[24] | ((uint16_t)payload[25] << 8));
@@ -364,9 +364,9 @@ void wake_cmd_start(const uint8_t *payload, uint8_t length)
     g_wake_target_bch = switch1_wakeup_parity34(target_addr);
     g_wake_channel = channel;
     g_wake_interval = interval;
-    // payload[26]: payload[26]: transmit period set in control structure after starting; 0 means unchanged.
+    // payload[26]: transmit period set in control structure after starting; 0 means unchanged.
     g_wake_real_interval = (length >= 27) ? payload[26] : 0;
-    // payload[27]: 0payload[27]: if nonzero, skip ACL registration and start paging 20 ms after Phase 3.
+    // payload[27]: if nonzero, skip ACL registration and start paging 20 ms after Phase 3.
     g_direct_handoff_disabled = (length >= 28) && (payload[27] != 0);
     g_wake_variant_enabled = variant_enabled;
     g_wake_sweep = variant_sweep;
@@ -385,7 +385,7 @@ void wake_cmd_start(const uint8_t *payload, uint8_t length)
     g_wake_forced_starts = 0;
     g_wake_start_failures = 0;
     g_wake_lead_slots = lead_slots;
-    // 1MbpsAt 1 Mbps, packet bit count equals transmit time in us; update payload midway between transmissions.
+    // At 1 Mbps, packet bit count equals transmit time in us; update payload midway between transmissions.
     if (write_delay_us != 0) {
         g_wake_write_delay_us = write_delay_us;
     } else {
@@ -404,7 +404,7 @@ void wake_cmd_start(const uint8_t *payload, uint8_t length)
         esp_bt_hid_device_disconnect();
     }
     // Update the deadline before setting g_wake_tx_active so the transmit task cannot use the previous deadline.
-    // 3Three seconds is used while waiting for CSB transmission to start; recalculate the deadline at transmission start.
+    // Three seconds is used while waiting for CSB transmission to start; recalculate the deadline at transmission start.
     g_wake_total_ms = total_ms;
     g_wake_receive_after = receive_after;
     g_wake_rx_offset = rx_offset;
