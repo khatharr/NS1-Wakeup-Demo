@@ -1,7 +1,5 @@
 # NS1 Wakeup Demo
 
-[日本語](README.ja.md) | English
-
 This project uses an ESP32 to emulate a Pro Controller for the original Nintendo Switch, referred to as Switch 1 in this project, including the communication flow used to wake the console from sleep mode.
 
 ## Requirements
