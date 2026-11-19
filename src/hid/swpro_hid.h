@@ -17,7 +17,7 @@
 /**
  * @brief Default input-report interval in microseconds
  *
- * @note GAPIncrease the interval in sniff mode in response to GAP notifications
+ * @note Increase the interval in sniff mode in response to GAP notifications
  */
 #define SWPRO_REPORT_INTERVAL_DEFAULT_US UINT32_C(8000)
 
@@ -30,11 +30,11 @@ typedef struct {
 } swpro_input_t;
 
 /**
- * @brief Bluetooth HIDRegister the Bluetooth HID device
+ * @brief Register the Bluetooth HID device
  *
- * @param handler esp_hidCallback invoked by the esp_hid event loop
- *                swpro_link.cProvided by swpro_link.c
- * @return ESP-IDFESP-IDF status code
+ * @param handler Callback invoked by the esp_hid event loop
+ *                Provided by swpro_link.c
+ * @return ESP-IDF status code
  */
 esp_err_t swpro_hid_register(esp_event_handler_t handler);
 
@@ -48,7 +48,7 @@ void swpro_hid_send_report(void);
  * @brief Return the current input-report interval in microseconds
  *
  * @return Current interval
- * @note GAPUpdate in response to GAP mode changes
+ * @note Update in response to GAP mode changes
  */
 uint32_t swpro_hid_report_interval_us(void);
 
@@ -62,25 +62,25 @@ void swpro_hid_set_report_interval_us(uint32_t interval_us);
 void swpro_hid_reset_session(void);
 
 /**
- * @brief SwitchProcess an output report sent by the Switch
+ * @brief Process an output report sent by the Switch
  *
- * @param report_id HIDHID report ID
+ * @param report_id HID report ID
  * @param data Report body, excluding report ID
- * @param length dataNumber of bytes in data
+ * @param length Number of bytes in data
  * @note Report ID 0x01 has this data layout:
- * - data[0]data[0] is the counter
- * - data[1..8]data[1..8] is rumble data
- * - data[9]data[9] is the subcommand
- * - data[10..]data[10..] contains the subcommand arguments
+ * - data[0] is the counter
+ * - data[1..8] is rumble data
+ * - data[9] is the subcommand
+ * - data[10..] contains the subcommand arguments
  */
 void swpro_hid_handle_output(uint8_t report_id, const uint8_t *data,
                              uint16_t length);
 
 /**
- * @brief SwitchReturn whether the Switch has requested the stopped state
+ * @brief Return whether the Switch has requested the stopped state
  *
  * @return true after receiving state 0 in subcommand 0x06, otherwise false
- * @note Switchtrue while the Switch enters sleep; do not send input reports
+ * @note true while the Switch enters sleep; do not send input reports
  */
 bool swpro_hid_host_stopped(void);
 

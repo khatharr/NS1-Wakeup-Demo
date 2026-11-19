@@ -237,7 +237,7 @@ static void fill_device_info(uint8_t report[REPORT_SIZE])
     report[25] = 0x02;
 }
 
-// 0x21Send 0x21 replies immediately after reception, without waiting for the normal 8 ms input interval.
+// Send 0x21 replies immediately after reception, without waiting for the normal 8 ms input interval.
 static void handle_subcommand(uint8_t command, const uint8_t *args, uint16_t args_len)
 {
     swpro_input_t input;
@@ -304,7 +304,7 @@ static void handle_subcommand(uint8_t command, const uint8_t *args, uint16_t arg
             // State 0 is the disconnect command sent when the Switch enters sleep.
             // Stop input reports at this point.
             // Sending an input report within 8 ms after link disconnection makes Bluedroid HID reopen L2CAP and start paging the Switch during its sleep transition.
-            // HIDSince the HID connection flag is cleared only by the disconnect callback, set s_host_stopped first.
+            // Since the HID connection flag is cleared only by the disconnect callback, set s_host_stopped first.
             if (args[0] == 0) {
                 s_host_stopped = true;
             }
