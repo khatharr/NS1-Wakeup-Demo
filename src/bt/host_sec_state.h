@@ -17,23 +17,23 @@ typedef struct {
 } host_sec_state_t;
 
 /**
- * @brief SwitchRead connection-related fields from the Switch device record
- * @param bd_addr SwitchSwitch BD_ADDR
+ * @brief Read connection-related fields from the Switch device record
+ * @param bd_addr Switch BD_ADDR
  * @param out Destination for the retrieved state
  * @return true if the device record exists, otherwise false
  */
 bool host_sec_state_read(const uint8_t bd_addr[6], host_sec_state_t *out);
 
 /**
- * @brief SwitchLog the connection state in the Switch device record
- * @param bd_addr SwitchSwitch BD_ADDR
+ * @brief Log the connection state in the Switch device record
+ * @param bd_addr Switch BD_ADDR
  * @param log_label Label added to the log line; use an empty string if NULL
  */
 void host_sec_state_report(const uint8_t bd_addr[6], const char *log_label);
 
 /**
  * @brief Reset sec_state and sm4 in the device record to their post-paging state
- * @param bd_addr SwitchSwitch BD_ADDR
+ * @param bd_addr Switch BD_ADDR
  * @return true if the device record was found and updated, otherwise false
  * @note Clear sec_state if it is stuck waiting for a device name, and mark the Switch feature information as unknown.
  *       The link key is not modified, so pairing information is preserved.

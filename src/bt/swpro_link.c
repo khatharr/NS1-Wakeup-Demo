@@ -31,7 +31,7 @@
 #define TAG "swpro"
 
 #define RECONNECT_INTERVAL_US UINT64_C(200000)
-// SwitchWait 800 ms for the Switch to release the previous ACL/L2CAP session and become ready for HID initialization.
+// Wait 800 ms for the Switch to release the previous ACL/L2CAP session and become ready for HID initialization.
 #define WAKE_PAGE_GAP_US INT64_C(800000)
 #define STATUS_INTERVAL_US UINT64_C(5000000)
 
@@ -41,9 +41,9 @@ volatile bool g_acl_connected;
 volatile bool g_pairing;
 static uint32_t s_reconnect_attempts;
 int64_t g_next_reconnect_us;
-// HCI Create ConnectionClock_Offset passed to HCI Create Connection; bit 15 is the valid flag.
+// Clock_Offset passed to HCI Create Connection; bit 15 is the valid flag.
 uint16_t g_hci_clock_offset;
-// SwitchDifference between native clocks on the Switch and ESP32. Direct ACL registration passes a 27-bit value to the control structure.
+// Difference between native clocks on the Switch and ESP32. Direct ACL registration passes a 27-bit value to the control structure.
 uint32_t g_direct_clock_delta;
 uint32_t g_direct_rx_clk;
 uint16_t g_direct_rx_bitoff;
@@ -51,7 +51,7 @@ uint8_t g_direct_lt_addr;
 volatile bool g_direct_clock_delta_valid;
 volatile bool g_direct_sync_valid;
 volatile bool g_direct_handoff_started;
-// CMD_WAKE_STARTWhen CMD_WAKE_START payload[27] is 1, skip ACL registration and start normal paging 20 ms after Phase 3 transmission.
+// When CMD_WAKE_START payload[27] is 1, skip ACL registration and start normal paging 20 ms after Phase 3 transmission.
 volatile bool g_direct_handoff_disabled;
 volatile bool g_direct_handoff_active;
 volatile esp_err_t g_direct_handoff_start_err;
@@ -90,7 +90,7 @@ int64_t g_connect_deadline_us;
 uint32_t g_connect_failures;
 #define CONNECT_FAILURE_LIMIT 20
 
-// bluedroidBluedroid power management (bta_dm_pm) repeatedly requests sniff and unsniff for HID connections without application direction, colliding with Switch-side link control and LMP.
+// Bluedroid power management (bta_dm_pm) repeatedly requests sniff and unsniff for HID connections without application direction, colliding with Switch-side link control and LMP.
 // Disable all ESP32-initiated power-mode changes via the linker's --wrap and follow Switch-initiated link control. Returning BTM_SUCCESS prevents the caller from retrying.
 static volatile uint32_t s_pm_suppressed;
 
@@ -100,7 +100,7 @@ uint8_t __wrap_BTM_SetDeviceClass(uint8_t dev_class[3])
 {
     uint8_t cod[3];
     memcpy(cod, dev_class, sizeof(cod));
-    // General DiscoverablePreserve CoD 0x002508, which Switch 2 recognizes, even when switching to General Discoverable.
+    // Preserve CoD 0x002508, which Switch 2 recognizes, even when switching to General Discoverable.
     cod[1] |= 0x20;
     return __real_BTM_SetDeviceClass(cod);
 }
@@ -123,7 +123,7 @@ bool g_wake_local_release_tried;
 int64_t g_idle_restart_due_us;
 
 
-// ACLRestarting with an active ACL link does not notify the Switch of disconnection, so the Switch retains the link until its supervision timeout.
+// Restarting with an active ACL link does not notify the Switch of disconnection, so the Switch retains the link until its supervision timeout.
 // A connection cycle would repeatedly restart while leaving the ACL link active; always finish disconnecting ACL before restarting.
 void swpro_restart_after_disconnect(uint32_t restart_marker)
 {
@@ -164,7 +164,7 @@ void swpro_stop_auto_connect(const char *reason)
             ESP_LOGW(TAG, "HID disconnect request failed: %s", esp_err_to_name(err));
         }
     }
-    // HIDAlso send HCI Disconnect to guarantee ACL disconnection even when an HID disconnect request is in progress.
+    // Also send HCI Disconnect to guarantee ACL disconnection even when an HID disconnect request is in progress.
     if (g_acl_connected) {
         esp_bd_addr_t host;
         if (swpro_host_snapshot(host)) {
@@ -214,7 +214,7 @@ void swpro_gap_callback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *para
                  g_reconnect_disabled ? 1U : 0U, g_cycle_enabled ? 1U : 0U);
         if (param->acl_conn_cmpl_stat.stat == ESP_BT_STATUS_SUCCESS) {
             g_acl_connected = true;
-            // ACLStop CSB transmission after connection so it cannot interfere with ACL traffic.
+            // Stop CSB transmission after connection so it cannot interfere with ACL traffic.
             if (g_wake_tx_active) {
                 g_wake_stop_requested = true;
             }
@@ -245,7 +245,7 @@ void swpro_gap_callback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *para
     case ESP_BT_GAP_ACL_DISCONN_CMPL_STAT_EVT:
         ESP_LOGI(TAG, "ACL disconnection complete: reason=0x%x", param->acl_disconn_cmpl_stat.reason);
         g_acl_connected = false;
-        // HIDStop sending input reports if the ACL link disconnects before an HID disconnect notification.
+        // Stop sending input reports if the ACL link disconnects before an HID disconnect notification.
         if (g_hid_connected) {
             esp_bd_addr_t host;
             if (swpro_host_snapshot(host) &&
@@ -277,7 +277,7 @@ void swpro_gap_callback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *para
         break;
 
     case ESP_BT_GAP_MODE_CHG_EVT:
-        // sniffIn sniff mode, match the report interval to the sniff interval to avoid overflowing the transmit queue.
+        // In sniff mode, match the report interval to the sniff interval to avoid overflowing the transmit queue.
         if (param->mode_chg.mode == ESP_BT_PM_MD_SNIFF) {
             uint32_t interval_us = (uint32_t)param->mode_chg.interval * 625;
             if (interval_us < SWPRO_REPORT_INTERVAL_DEFAULT_US) {
@@ -360,7 +360,7 @@ void swpro_hidd_event_callback(void *handler_args, esp_event_base_t base, int32_
                 ESP_LOGI(TAG, "Booted immediately after wake-up; starting normal page");
                 g_next_reconnect_us = esp_timer_get_time() + 50000;
             } else {
-                // esp_hidThe esp_hid wrapper attempts an automatic connection using Virtual Cable information; defer manual reconnection by one cycle to avoid a collision.
+                // The esp_hid wrapper attempts an automatic connection using Virtual Cable information; defer manual reconnection by one cycle to avoid a collision.
                 g_next_reconnect_us =
                     esp_timer_get_time() + RECONNECT_INTERVAL_US;
             }
@@ -415,7 +415,7 @@ void swpro_hidd_event_callback(void *handler_args, esp_event_base_t base, int32_
         break;
 
     case ESP_HIDD_DISCONNECT_EVENT:
-        // SwitchStart ACL disconnection before logging to ensure disconnection begins before the Switch reconnects HID.
+        // Start ACL disconnection before logging to ensure disconnection begins before the Switch reconnects HID.
         if (g_acl_connected && !g_cycle_enabled && !g_pairing &&
             !g_stay_disconnected && swpro_host_exists()) {
             esp_bd_addr_t host;
@@ -580,7 +580,7 @@ void swpro_protocol_task(void *argument)
                       !g_wake_page_pending && !g_acl_connected &&
                       !g_hid_connected && g_connect_deadline_us == 0);
 
-        // UARTSuppress state lines during CSB transmission so UART output cannot disrupt the CSB transmission period.
+        // Suppress state lines during CSB transmission so UART output cannot disrupt the CSB transmission period.
         if (!g_wake_tx_active &&
             (now >= next_bridge_us || last_connected != g_hid_connected ||
              last_cycle != g_cycle_enabled)) {
@@ -601,7 +601,7 @@ void swpro_protocol_task(void *argument)
                 wake_handoff_finished();
             } else if (g_direct_handoff_deadline_us != 0 &&
                        now >= g_direct_handoff_deadline_us) {
-                // BluetoothReinitialize the Bluetooth controller because it may still be registered with the Bluetooth host and link manager.
+                // Reinitialize the Bluetooth controller because it may still be registered with the Bluetooth host and link manager.
                 ESP_LOGE(TAG, "Rebooting because ACL link registration from wake-up response did not complete");
                 swpro_restart_after_disconnect(0);
             }
@@ -613,7 +613,7 @@ void swpro_protocol_task(void *argument)
                 g_reconnect_paused = false;
                 g_next_reconnect_us = now + (int64_t)RECONNECT_INTERVAL_US;
                 {
-                    // CSBRequest ACL disconnection after stopping CSB to avoid contention between CSB transmission and ACL disconnection.
+                    // Request ACL disconnection after stopping CSB to avoid contention between CSB transmission and ACL disconnection.
                     if (g_wake_tx_active) {
                         g_wake_stop_requested = true;
                         const int64_t stop_until =
@@ -639,7 +639,7 @@ void swpro_protocol_task(void *argument)
                         g_wake_local_release_tried = false;
                         // Disable normal paging until ACL disconnection finishes so it cannot reconnect to an ACL link being torn down.
                         g_reconnect_disabled = true;
-                        // bluedroidCancel any pending HID connection request to avoid leaving an old L2CAP request in Bluedroid.
+                        // Cancel any pending HID connection request to avoid leaving an old L2CAP request in Bluedroid.
                         if (g_connect_deadline_us != 0) {
                             ESP_LOGI(TAG,
                                      "Wake-up succeeded: cancelling in-progress HID "
@@ -663,7 +663,7 @@ void swpro_protocol_task(void *argument)
             }
         }
 
-        // CSBStart normal paging only after CSB transmission and ACL disconnection have both completed.
+        // Start normal paging only after CSB transmission and ACL disconnection have both completed.
         if (g_wake_page_pending && !g_wake_tx_active &&
             (!g_acl_connected || now >= g_wake_page_deadline_us)) {
             if (g_acl_connected &&

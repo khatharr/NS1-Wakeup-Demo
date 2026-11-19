@@ -21,7 +21,7 @@ extern volatile bool g_pairing;
 extern volatile bool g_stay_disconnected;
 
 /**
- * @brief HIDConsecutive HID connection request failures
+ * @brief Consecutive HID connection request failures
  * @note Restart and reinitialize the Bluetooth connection state after a threshold is reached
  */
 extern uint32_t g_connect_failures;
@@ -30,7 +30,7 @@ extern uint32_t g_connect_failures;
 #define LINK_SUPERVISION_TIMEOUT_SLOTS 3200
 /**
  * @brief Number of slots in a paging timeout
- * @note 1One slot is 0.625 ms; 0x1400 is 3.2 seconds.
+ * @note One slot is 0.625 ms; 0x1400 is 3.2 seconds.
  */
 #define WAKE_PAGE_TIMEOUT_SLOTS UINT16_C(0x1400)
 extern void BTM_SetDefaultLinkSuperTout(uint16_t timeout);
@@ -53,24 +53,24 @@ extern volatile uint8_t g_wake_disconnect_tries;
 extern bool g_wake_local_release_tried;
 
 /**
- * @brief HIDScheduled restart time while HID connections and wake-up processing are stopped
- * @note 00 means no restart is scheduled
+ * @brief Scheduled restart time while HID connections and wake-up processing are stopped
+ * @note 0 means no restart is scheduled
  */
 extern int64_t g_idle_restart_due_us;
 
 void swpro_protocol_task(void *argument);
 
 /**
- * @brief ACLRestart after waiting for ACL disconnection to finish
+ * @brief Restart after waiting for ACL disconnection to finish
  * @param restart_marker Marker selecting the post-restart action
- * @note ACLAvoid restarting with an active ACL link, since the Switch would retain that link
+ * @note Avoid restarting with an active ACL link, since the Switch would retain that link
  */
 void swpro_restart_after_disconnect(uint32_t restart_marker);
 
 /**
  * @brief Stop automatic paging and connectable mode
  * @param reason Reason logged for stopping
- * @note HOMEDo not resume automatic connections until a connection attempt starts from HOME input
+ * @note Do not resume automatic connections until a connection attempt starts from HOME input
  */
 void swpro_stop_auto_connect(const char *reason);
 
