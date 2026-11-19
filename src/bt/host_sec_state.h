@@ -17,26 +17,26 @@ typedef struct {
 } host_sec_state_t;
 
 /**
- * @brief Switchのデバイス記録から接続可否に関わるフィールドを読み出す
- * @param bd_addr SwitchのBD_ADDR
- * @param out 読み出した状態の格納先
- * @return デバイス記録が登録されていればtrue、なければfalse
+ * @brief SwitchRead connection-related fields from the Switch device record
+ * @param bd_addr SwitchSwitch BD_ADDR
+ * @param out Destination for the retrieved state
+ * @return true if the device record exists, otherwise false
  */
 bool host_sec_state_read(const uint8_t bd_addr[6], host_sec_state_t *out);
 
 /**
- * @brief Switchのデバイス記録にある接続状態をログへ出力する
- * @param bd_addr SwitchのBD_ADDR
- * @param log_label ログ行に付けるラベル。NULLなら空文字列を使用する
+ * @brief SwitchLog the connection state in the Switch device record
+ * @param bd_addr SwitchSwitch BD_ADDR
+ * @param log_label Label added to the log line; use an empty string if NULL
  */
 void host_sec_state_report(const uint8_t bd_addr[6], const char *log_label);
 
 /**
- * @brief デバイス記録のsec_stateとsm4をページ接続直後の状態へ設定する
- * @param bd_addr SwitchのBD_ADDR
- * @return デバイス記録が見つかり設定できればtrue、なければfalse
- * @note デバイス名取得待ちで停止したsec_stateを解除し、Switchの機能情報を未取得状態に設定する。
- *       リンクキーは変更しないため、ペアリング情報は保持される。
+ * @brief Reset sec_state and sm4 in the device record to their post-paging state
+ * @param bd_addr SwitchSwitch BD_ADDR
+ * @return true if the device record was found and updated, otherwise false
+ * @note Clear sec_state if it is stuck waiting for a device name, and mark the Switch feature information as unknown.
+ *       The link key is not modified, so pairing information is preserved.
  */
 bool host_sec_state_reset_to_page_state(const uint8_t bd_addr[6]);
 

@@ -1,11 +1,11 @@
 /**
- * @brief 入力ブリッジからUART0で受信するフレームの構成
- * @note フィールドの順序は次のとおり
- *       1. ヘッダー0xAB 0xCD
- *       2. コマンド
- *       3. payload長
+ * @brief Format of frames received from the input bridge over UART0
+ * @note The fields appear in the following order:
+ *       1. Header 0xAB 0xCD
+ *       2. Command
+ *       3. payloadPayload length
  *       4. payload
- *       5. XORチェックサム
+ *       5. XORXOR checksum
  */
 #ifndef SWPRO_UART_H
 #define SWPRO_UART_H
@@ -17,52 +17,52 @@
 #define CMD_CLEAR 0x03
 #define CMD_REBOOT 0x04
 /**
- * @brief ウェイクアップ処理の送信を停止し、通常のページ接続を再開する
- * @note payloadは使用しない
+ * @brief Stop wake-up transmission and resume normal paging
+ * @note payloadNo payload is used
  */
 #define CMD_WAKE_STOP 0x09
 /**
- * @brief ウェイクアップ処理の送信を開始する
- * @note payloadの項目は次のとおり
- *       - [0] RFチャンネル。0は2402MHz、24は2426MHz
- *       - [1] 送信時間。1~30秒
- *       - [2] 白色化を無効にするときの初期値。0~127。0xFFは無効化しない
- *       - [5] バーストごとの切り替えを開始する位置。0~31。0xFFは切り替えない
- *       - [27] 0以外なら、ウェイクアップ応答からACLリンクを登録する処理を無効にする
+ * @brief Start wake-up transmission
+ * @note payloadThe payload fields are:
+ *       - [0] RFRF channel: 0 is 2402 MHz; 24 is 2426 MHz
+ *       - [1] Transmit duration: 1 to 30 seconds
+ *       - [2] Initial value for disabling whitening: 0 to 127; 0xFF leaves it enabled
+ *       - [5] Position for switching on each burst: 0 to 31; 0xFF disables switching
+ *       - [27] 0If nonzero, disable registration of an ACL link from the wake-up response
  */
 #define CMD_WAKE_START 0x0B
 /**
- * @brief ウェイクアップ処理用アクセスコードでCSB受信を制御する
- * @note payloadの項目は次のとおり
- *       - payload[0]が1なら開始し、0なら停止する
- *       - payload[1]は受信間隔をスロット数で指定する
- * @note フェーズ1の送信中に開始すると、Switchの応答検出後にフェーズ3の送信とウェイクアップ応答からACLリンクを登録する処理まで連続して実行する。
+ * @brief Control CSB reception using the wake-up access code
+ * @note payloadThe payload fields are:
+ *       - payload[0]Start if payload[0] is 1; stop if it is 0
+ *       - payload[1]payload[1] specifies the receive interval in slots
+ * @note If started during Phase 1 transmission, detection of the Switch response is followed immediately by Phase 3 transmission and registration of the ACL link from the wake-up response.
  */
 #define CMD_CSB_RX 0x12
 /**
- * @brief 接続試行を繰り返す
- * @note 1バイトpayloadの値が1なら開始し、0なら停止する
- * @note ウェイクアップ処理と通常の再接続を交互に実行し、接続が成立するまで継続する
+ * @brief Repeat connection attempts
+ * @note 1Start if the one-byte payload is 1; stop if it is 0
+ * @note Alternate between wake-up and normal reconnection until a connection succeeds
  */
 #define CMD_CONNECT_CYCLE 0x13
 /**
- * @brief SwitchのBD_ADDRだけを保存する
- * @note ペアリング情報を削除したあとでもESP32からウェイクアップ処理を開始できるように、接続先アドレスを設定する。
+ * @brief SwitchStore only the Switch BD_ADDR
+ * @note Set the target address so the ESP32 can initiate wake-up even after pairing information has been deleted.
  */
 #define CMD_SET_HOST 0x14
 /**
- * @brief ウェイクアップ処理を実行せず、ページ接続を1回だけ開始する
- * @note 起動中のSwitchへ通常のページング手順で再接続する
+ * @brief Start one paging connection without performing wake-up
+ * @note Reconnect to an awake Switch using the normal paging procedure
  */
 #define CMD_PAGE_NOW 0x15
 /**
- * @brief 接続試行、ウェイクアップ送信、自動接続を停止してリンクを切断する
- * @note payloadは使用しない
+ * @brief Stop connection attempts, wake-up transmission, and automatic connections, then disconnect the link
+ * @note payloadNo payload is used
  */
 #define CMD_DISCONNECT 0x16
-/** @brief NS2ウェイク広告を取得するBLEスキャンを開始する。payloadは使用しない。 */
+/** @brief NS2Begin a BLE scan to capture NS2 wake advertisements; no payload is used. */
 #define CMD_BLE_SCAN 0x17
-/** @brief 保存済み広告を使用してNS2ウェイクを実行する。payloadは使用しない。 */
+/** @brief Perform an NS2 wake using the saved advertisement; no payload is used. */
 #define CMD_NS2_WAKE_UP 0x18
 
 

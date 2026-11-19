@@ -1,10 +1,10 @@
 /*
- * 前回接続時のsm4が残っていると、btm_sec_l2cap_access_reqがSwitchの機能情報を取得せずに認証を開始する。
- * その場合はL2CAP接続応答を送信できないため、ウェイクアップ処理の開始前にsm4を未取得状態へ設定する。
+ * If sm4 from the previous connection remains set, btm_sec_l2cap_access_req starts authentication without fetching the Switch's feature information.
+ * Since this prevents an L2CAP connection response, set sm4 to the unknown state before starting wake-up.
  *
- * 対象フィールドはtBTM_SEC_DEV_RECのsec_stateとsm4である。
- * 構造体の配置はsdkconfigの設定で変わるため、オフセットを手計算せず、内部ヘッダーの型定義を介してメンバー名でアクセスする。
- * 必要なインクルードパスはsrc/CMakeLists.txtに設定済み。
+ * The fields involved are sec_state and sm4 in tBTM_SEC_DEV_REC.
+ * Because the structure layout changes with sdkconfig settings, access members by name through internal header type definitions rather than calculating offsets manually.
+ * The required include paths are configured in src/CMakeLists.txt.
  */
 #include "host_sec_state.h"
 
@@ -64,16 +64,16 @@ bool host_sec_state_reset_to_page_state(const uint8_t bd_addr[6])
     const uint8_t sec_state_before = device_record->sec_state;
     const uint8_t sm4_before = device_record->sm4;
 
-    // デバイス名取得待ちで停止した状態を解消する。
-    // btm_sec_start_get_nameのタイムアウト値は0であるため、デバイス名が返らない限り状態が解除されない。
-    // btm_sec_execute_procedureはsec_stateがアイドル状態以外であれば、処理を開始せずに終了する。
+    // Clear the state stuck waiting for the device name.
+    // btm_sec_start_get_namebtm_sec_start_get_name has a timeout value of 0, so this state cannot clear until a device name is returned.
+    // btm_sec_execute_procedurebtm_sec_execute_procedure exits without starting work unless sec_state is idle.
     if (device_record->sec_state != BTM_SEC_STATE_IDLE) {
         device_record->sec_state = BTM_SEC_STATE_IDLE;
     }
 
-    // Switchの機能情報を未取得状態に設定する。
-    // sm4にBTM_SM4_TRUEが設定されていると、btm_sec_l2cap_access_reqが保留せず認証と暗号化を要求する。
-    // 機能情報を取得してから処理を再開し、ページ接続時と同じ順序になる。
+    // SwitchMark the Switch feature information as unknown.
+    // sm4When sm4 is BTM_SM4_TRUE, btm_sec_l2cap_access_req requests authentication and encryption without waiting.
+    // Resume processing after retrieving feature information, preserving the same order used during paging.
     device_record->sm4 = BTM_SM4_UNKNOWN;
 
     ESP_LOGI(TAG,
