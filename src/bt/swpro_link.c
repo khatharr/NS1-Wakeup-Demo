@@ -34,8 +34,20 @@
 // Wait 800 ms for the Switch to release the previous ACL/L2CAP session and become ready for HID initialization.
 #define WAKE_PAGE_GAP_US INT64_C(800000)
 #define STATUS_INTERVAL_US UINT64_C(5000000)
+#define AUTO_A_DELAY_US INT64_C(2000000)
+#define AUTO_A_PRESS_US INT64_C(100000)
+#define AUTO_A_RELEASE_US INT64_C(100000)
+
+typedef enum {
+    AUTO_A_IDLE,
+    AUTO_A_WAIT,
+    AUTO_A_PRESSED,
+    AUTO_A_RELEASED,
+    AUTO_A_DONE,
+} auto_a_state_t;
 
 static volatile bool s_hid_started;
+static volatile uint32_t s_hid_connection_generation;
 volatile bool g_hid_connected;
 volatile bool g_acl_connected;
 volatile bool g_pairing;
@@ -380,6 +392,7 @@ void swpro_hidd_event_callback(void *handler_args, esp_event_base_t base, int32_
             g_pairing = false;
             g_hid_connected = true;
             g_connect_failures = 0;
+            s_hid_connection_generation++;
             ESP_LOGI(TAG, "HID OPEN");
         } else {
             g_connect_failures++;
@@ -569,6 +582,9 @@ void swpro_protocol_task(void *argument)
     int64_t next_bridge_us = 0;
     bool last_connected = false;
     bool last_cycle = false;
+    uint32_t last_auto_a_generation = 0;
+    int64_t auto_a_deadline_us = 0;
+    auto_a_state_t auto_a_state = AUTO_A_IDLE;
 
     while (true) {
         vTaskDelayUntil(&previous, 1);
@@ -579,6 +595,34 @@ void swpro_protocol_task(void *argument)
         ns2_wake_step(!g_wake_tx_active && !g_direct_handoff_active &&
                       !g_wake_page_pending && !g_acl_connected &&
                       !g_hid_connected && g_connect_deadline_us == 0);
+
+        // Generate a single A press after each successful HID connection.
+        // Never block the protocol task: it also drives the normal input reports.
+        if (!g_hid_connected || swpro_hid_host_stopped()) {
+            if (auto_a_state != AUTO_A_IDLE) {
+                swpro_hid_override_a(false, false);
+                auto_a_state = AUTO_A_IDLE;
+            }
+        } else if (last_auto_a_generation != s_hid_connection_generation) {
+            last_auto_a_generation = s_hid_connection_generation;
+            swpro_hid_override_a(false, false);
+            auto_a_deadline_us = now + AUTO_A_DELAY_US;
+            auto_a_state = AUTO_A_WAIT;
+            ESP_LOGI(TAG, "Auto-unlock: A press scheduled 2 seconds after HID connection");
+        } else if (auto_a_state == AUTO_A_WAIT && now >= auto_a_deadline_us) {
+            swpro_hid_override_a(true, true);
+            auto_a_deadline_us = now + AUTO_A_PRESS_US;
+            auto_a_state = AUTO_A_PRESSED;
+            ESP_LOGI(TAG, "Auto-unlock: A pressed");
+        } else if (auto_a_state == AUTO_A_PRESSED && now >= auto_a_deadline_us) {
+            swpro_hid_override_a(true, false);
+            auto_a_deadline_us = now + AUTO_A_RELEASE_US;
+            auto_a_state = AUTO_A_RELEASED;
+            ESP_LOGI(TAG, "Auto-unlock: A released");
+        } else if (auto_a_state == AUTO_A_RELEASED && now >= auto_a_deadline_us) {
+            swpro_hid_override_a(false, false);
+            auto_a_state = AUTO_A_DONE;
+        }
 
         // Suppress state lines during CSB transmission so UART output cannot disrupt the CSB transmission period.
         if (!g_wake_tx_active &&
