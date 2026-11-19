@@ -1,4 +1,4 @@
-/* 送信タスクとUARTタスクは別コアで動作する。タスク間で共有する値にはvolatileを使用する。 */
+/* Transmit and UART tasks run on separate cores; use volatile for values shared across tasks. */
 #ifndef WAKE_INTERNAL_H
 #define WAKE_INTERNAL_H
 
@@ -18,7 +18,7 @@ typedef enum {
     WAKE_BURST_WAIT_GAP,
 } wake_state_t;
 
-// 64スロット周期ではピコネットクロックのCLK[6:1]が変化せず、白色化の初期値が一定になる
+// 64At a 64-slot interval, piconet CLK[6:1] stays constant, so the whitening seed does not change.
 #define WAKE_CSB_RAW_INTERVAL UINT16_C(0x0040)
 #define WAKE_SECONDS_MIN UINT8_C(1)
 #define WAKE_SECONDS_MAX UINT8_C(30)
@@ -27,30 +27,30 @@ typedef enum {
 #define WAKE_CHANNEL_MAX UINT8_C(78)
 #define WAKE_VARIANT_START_MAX UINT8_C(31)
 #define WAKE_VARIANT_START_NONE UINT8_C(0xFF)
-// 0xFEは白色化初期値0~31の順次切り替えを指定する
+// 0xFE0xFE selects sequential switching through whitening seeds 0-31.
 #define WAKE_VARIANT_SWEEP UINT8_C(0xFE)
 #define WAKE_SWEEP_STEP_US UINT32_C(750000)
-// descriptor検出から4スロット後に送信を開始するため、受信開始時刻を最後のバーストから15 CLKN後に設定する
+// descriptorTo transmit four slots after descriptor detection, set the receive start time to 15 CLKN after the final burst.
 #define WAKE_RX_OFFSET_DEFAULT UINT8_C(15)
-// 318.75ms周期の応答バーストを2周期分監視する
+// 318.75msMonitor two cycles of the 318.75 ms response-burst period.
 #define WAKE_RX_WATCH_US INT64_C(700000)
-// CSB送信とCSB受信を同時に登録できるよう、送信イベントの予約時間を250us短縮する
+// CSBShorten the reserved transmit event duration by 250 us so CSB transmit and receive can be scheduled together.
 #define CSB_TX_DECLARED_MARGIN_US 250
 #define WAKE_LEAD_SLOTS_DEFAULT UINT8_C(4)
 #define WAKE_LEAD_SLOTS_MAX UINT8_C(32)
 // TYPE=3(DM1)、FLOW=1、ARQN=0、SEQN=1
 #define WAKE_PHASE3_HEADER UINT16_C(0x0298)
 #define WAKE_PHASE3_LLID_DEFAULT UINT8_C(2)
-// control structure +0x00のbit0~4へ指定するフレームフォーマット。24ではFLOW、ARQN、SEQNが0になる
+// control structure +0x00Frame format in bits 0-4 at control structure +0x00; with format 24, FLOW, ARQN, and SEQN are zero.
 #define WAKE_PHASE3_FRAME_FORMAT 24
-// DM1のアクセスコード72us、ヘッダー54us、descriptor確認周期の半分100usを加算する
+// DM1Add the 72 us DM1 access code, 54 us header, and half the descriptor polling period (100 us).
 #define WAKE_RX_DETECT_LATENCY_US 226
-// Switchの応答開始を基準とするフェーズ3の送信時刻
+// SwitchPhase 3 transmit time relative to the beginning of the Switch response.
 #define WAKE_PHASE3_TARGET_US 634
 #define WAKE_PHASE3_BIAS_US 25
-// フェーズ3と直後のページスキャン受信がスケジューラ上で重ならないようにする
+// Prevent Phase 3 and the immediately following page-scan reception from overlapping in the scheduler.
 #define WAKE_PHASE3_AIRTIME_US 400
-// CSB停止前にフェーズ1の送信が再開しないよう、次の送信を1秒遅延させる
+// CSBDelay the next transmission by one second to prevent Phase 1 from restarting before CSB is stopped.
 #define WAKE_PHASE3_QUIET_SLOTS UINT16_C(1600)
 #define WAKE_CLOCK_SAMPLES 12
 

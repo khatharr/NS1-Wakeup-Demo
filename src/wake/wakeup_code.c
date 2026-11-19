@@ -1,15 +1,15 @@
 #include "wakeup_code.h"
 
 /*
- * Bluetooth Core SpecificationのBaseband Specificationで定義されている値。
- * - PNは64ビットの疑似乱数列である。
- * - 0x37CD0EB67は原始2元(63,30)BCH符号の生成多項式である。
- * - GENERATORには、この多項式へ(D+1)を乗じた値を使用する。
+ * Bluetooth Core SpecificationValues defined by the Bluetooth Core Specification's Baseband Specification.
+ * - PNPN is a 64-bit pseudorandom sequence.
+ * - 0x37CD0EB670x37CD0EB67 is the generator polynomial for a primitive binary (63,30) BCH code.
+ * - GENERATORGENERATOR is that polynomial multiplied by (D+1).
  */
 #define PN UINT64_C(0x83848D96BBCC54FC)
 #define GENERATOR UINT64_C(0x585713DA9)
 
-// GF(2)上で多項式除算を行い、剰余を返す。加減算にはXORを使用する。
+// GF(2)Perform polynomial division over GF(2) and return the remainder; addition and subtraction use XOR.
 static uint64_t gf2_remainder(uint64_t value, uint64_t divisor, int top_bit)
 {
     for (int bit = top_bit; bit >= 34; --bit) {
@@ -23,11 +23,11 @@ static uint64_t gf2_remainder(uint64_t value, uint64_t divisor, int top_bit)
 uint64_t switch1_sync_word(const uint8_t address[6])
 {
     /*
-     * - 使用するのは表記上の末尾3バイト(LAP)だけである。
-     * - LAPの最上位ビットで選択した6ビットのBarker系列を付加し、30ビットにする。
-     * - 符号化前にPN系列の上位30ビットを重ねる。
-     * - 34ビット左へシフトし、生成多項式で割った剰余をパリティにする。
-     * - 64ビットのPN系列を重ねて同期語を得る。
+     * - Only the last three bytes in display order (LAP) are used.
+     * - LAPAppend a six-bit Barker sequence chosen by the top bit of LAP, yielding 30 bits.
+     * - XOR the upper 30 bits of the PN sequence before encoding.
+     * - 34Shift left 34 bits and use the remainder after division by the generator polynomial as parity.
+     * - 64XOR the 64-bit PN sequence to obtain the sync word.
      */
     const uint32_t lap = ((uint32_t)address[3] << 16) |
                          ((uint32_t)address[4] << 8) | address[5];
