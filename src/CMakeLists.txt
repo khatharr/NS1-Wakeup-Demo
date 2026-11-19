@@ -13,12 +13,12 @@ idf_component_register(
     REQUIRES bt esp_hid nvs_flash esp_timer esp_driver_uart
 )
 
-# CSBAdd Bluedroid internal headers to the include path so CSB HCI commands can be constructed directly.
+# Add Bluedroid internal headers to the include path so CSB HCI commands can be constructed directly.
 set(BLUEDROID_DIR "$ENV{IDF_PATH}/components/bt/host/bluedroid")
 target_include_directories(${COMPONENT_LIB} PRIVATE
     "${BLUEDROID_DIR}/common/include"
     "${BLUEDROID_DIR}/stack/include"
-    # host_sec_state.cNeeded for host_sec_state.c to access tBTM_SEC_DEV_REC fields by name.
+    # Needed for host_sec_state.c to access tBTM_SEC_DEV_REC fields by name.
     # The structure layout depends on sdkconfig, so do not use fixed offsets.
     "${BLUEDROID_DIR}/stack/btm/include"
     "${BLUEDROID_DIR}/osi/include"

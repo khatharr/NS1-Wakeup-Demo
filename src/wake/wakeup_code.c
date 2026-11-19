@@ -1,15 +1,15 @@
 #include "wakeup_code.h"
 
 /*
- * Bluetooth Core SpecificationValues defined by the Bluetooth Core Specification's Baseband Specification.
- * - PNPN is a 64-bit pseudorandom sequence.
- * - 0x37CD0EB670x37CD0EB67 is the generator polynomial for a primitive binary (63,30) BCH code.
- * - GENERATORGENERATOR is that polynomial multiplied by (D+1).
+ * Values defined by the Bluetooth Core Specification's Baseband Specification.
+ * - PN is a 64-bit pseudorandom sequence.
+ * - 0x37CD0EB67 is the generator polynomial for a primitive binary (63,30) BCH code.
+ * - GENERATOR is that polynomial multiplied by (D+1).
  */
 #define PN UINT64_C(0x83848D96BBCC54FC)
 #define GENERATOR UINT64_C(0x585713DA9)
 
-// GF(2)Perform polynomial division over GF(2) and return the remainder; addition and subtraction use XOR.
+// Perform polynomial division over GF(2) and return the remainder; addition and subtraction use XOR.
 static uint64_t gf2_remainder(uint64_t value, uint64_t divisor, int top_bit)
 {
     for (int bit = top_bit; bit >= 34; --bit) {
@@ -24,10 +24,10 @@ uint64_t switch1_sync_word(const uint8_t address[6])
 {
     /*
      * - Only the last three bytes in display order (LAP) are used.
-     * - LAPAppend a six-bit Barker sequence chosen by the top bit of LAP, yielding 30 bits.
+     * - Append a six-bit Barker sequence chosen by the top bit of LAP, yielding 30 bits.
      * - XOR the upper 30 bits of the PN sequence before encoding.
-     * - 34Shift left 34 bits and use the remainder after division by the generator polynomial as parity.
-     * - 64XOR the 64-bit PN sequence to obtain the sync word.
+     * - Shift left 34 bits and use the remainder after division by the generator polynomial as parity.
+     * - XOR the 64-bit PN sequence to obtain the sync word.
      */
     const uint32_t lap = ((uint32_t)address[3] << 16) |
                          ((uint32_t)address[4] << 8) | address[5];
