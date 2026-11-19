@@ -40,6 +40,13 @@ esp_err_t swpro_hid_register(esp_event_handler_t handler);
 
 void swpro_hid_set_input(const swpro_input_t *input);
 
+/**
+ * @brief Override the A-button bit in outgoing reports without changing bridge input
+ * @param enabled Whether the override is active
+ * @param pressed A-button state while the override is active
+ */
+void swpro_hid_override_a(bool enabled, bool pressed);
+
 uint32_t swpro_hid_input_frames(void);
 
 void swpro_hid_send_report(void);
