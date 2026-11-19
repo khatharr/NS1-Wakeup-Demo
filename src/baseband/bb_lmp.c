@@ -1,6 +1,6 @@
 /*
- * このリンクはROMの通常の接続手順を経由しないため、一部のLMPメッセージが送信されない。
- * 必要な内部メッセージとLMP処理をリンクコントローラーへ直接要求する。
+ * This link bypasses the normal ROM connection procedure, so some LMP messages are not transmitted.
+ * Request the necessary internal messages and LMP handling directly from the link controller.
  */
 
 #include "baseband.h"
@@ -55,11 +55,11 @@ void lc_con_req_controller(void *arg)
     __asm__ __volatile__("memw" ::: "memory");
     hci_send_2_host(event_param);
     /*
-     * lc_env+0x56は、ホストがこのリンクを管理対象として登録したかを示すフラグである。
-     * HCI Connection Requestイベントをこの関数で生成するため、ROMの登録処理を経由せず、このフィールドには初期値の0が保持される。
+     * lc_env+0x56lc_env+0x56 is a flag indicating whether the host registered this link for management.
+     * HCI Connection RequestSince this function generates HCI Connection Request without ROM's registration procedure, the field retains its initial value of zero.
      *
-     * - 値が0であれば、名前取得完了時にr_lc_rem_name_cont(0x4001f290)がこのフィールドを読み出し、HCI Connection Requestがホストへ登録されていない一時リンクと判定してr_lc_detachを呼び出す。
-     * - 名前要求の2ms後にリンクが解放される。
+     * - If zero, r_lc_rem_name_cont (0x4001f290) reads this field when name lookup completes, treats the link as temporary because HCI Connection Request was not registered with the host, and calls r_lc_detach.
+     * - The link is released 2 ms after the name request.
      */
     lc_env_ptr[86] = 1;
     const ke_state_set_fn_t ke_state_set =
@@ -120,9 +120,9 @@ void lc_version_req_controller(void *arg)
     const ke_msg_send_basic_fn_t ke_msg_send_basic =
         (ke_msg_send_basic_fn_t)ROM_KE_MSG_SEND_BASIC_ADDR;
     /*
-     * 0x516(timing accuracy)は送信しない。
-     * lc_op_timacc_ind_handler(0x400292e4)は処理末尾で0x518を同じリンクのLCタスクへ無条件に送信するため、ここからLMP_host_connection_reqが送信される。
-     * ESP32がACLリンクのBluetooth周辺側としてこの要求を送信すると、ホストへHCI Connection Requestを通知せず、Connection Completeだけを通知するため、L2CAPがリンクを切断する。
+     * 0x516(timing accuracy)Do not send 0x516 (timing accuracy).
+     * lc_op_timacc_ind_handler(0x400292e4)lc_op_timacc_ind_handler (0x400292e4) unconditionally sends 0x518 to the same link's LC task, causing LMP_host_connection_req to be transmitted from here.
+     * ESP32If the ESP32 sends this request as the Bluetooth peripheral on an ACL link, it sends only Connection Complete rather than notifying the host with HCI Connection Request, so L2CAP disconnects the link.
      */
     ke_msg_send_basic(KE_MSG_LC_OP_FEAT_IND, lc_task_id, lc_task_id);
     ke_msg_send_basic(KE_MSG_LC_OP_VERS_IND, lc_task_id, lc_task_id);
@@ -137,21 +137,21 @@ void lc_version_req_controller(void *arg)
 }
 
 /*
- * Switchから受信する00 04 00 66に対し、ROMはLMP_not_accepted(opcode 0、理由0x19)を送信する。
- * この応答だけを抑制する。
+ * SwitchFor 00 04 00 66 received from the Switch, ROM sends LMP_not_accepted (opcode 0, reason 0x19).
+ * Suppress only that response.
  *
- * lc_lmp_rx_ind_handler(0x40027d50)は解釈できなかったPDUについてr_ip_funcs_p+0x214を呼び出す。
- * 引数は(リンク番号、拒否対象opcode、理由、TID)である。
- * この関数ポインターをフックし、opcode 0であればLMP_not_acceptedの送信処理を抑制する。
+ * lc_lmp_rx_ind_handler(0x40027d50)lc_lmp_rx_ind_handler (0x40027d50) calls r_ip_funcs_p+0x214 for a PDU it cannot interpret.
+ * Arguments are (link index, rejected opcode, reason, TID).
+ * Hook this function pointer and suppress LMP_not_accepted when the opcode is 0.
  */
 #define IP_FUNCS_LC_SEND_PDU_NOT_ACCEPTED_INDEX (UINT16_C(0x214) / sizeof(void *))
 
 /*
- * ROMは接続完了の直後にパケット種別の交換を開始する。
- * r_lc_con_cmpが0x517を同じリンクのLCタスクへ送り、lc_op_pt_ind_handlerがr_lc_packet_typeを呼び出す。
+ * ROMROM starts a packet-type exchange immediately after connection completion.
+ * r_lc_con_cmpr_lc_con_cmp sends 0x517 to the link's LC task, and lc_op_pt_ind_handler calls r_lc_packet_type.
  *
- * ESP32から開始するパケット種別の変更がSwitchのLMP_packet_type_table_reqと重なると、Transaction Collisionにより拒否される。
- * パケット種別の変更が完了しなければリンク処理の内部状態が1にならず、ホストが送信するRead Remote Extended Featuresがstatus 0x02で失敗し、リンクが切断される。
+ * ESP32If the ESP32-initiated change overlaps the Switch's LMP_packet_type_table_req, it is rejected with Transaction Collision.
+ * If the packet-type exchange does not complete, the internal link state never becomes 1, the host's Read Remote Extended Features fails with status 0x02, and the link disconnects.
  */
 #define IP_FUNCS_LC_PACKET_TYPE_INDEX (UINT16_C(0x45c) / sizeof(void *))
 typedef void (*lc_packet_type_fn_t)(uint32_t link);
@@ -205,8 +205,8 @@ static void IRAM_ATTR lc_send_pdu_not_accepted_hook(uint32_t link,
                                                     uint32_t tid)
 {
     /*
-     * opcode 0はSwitchから受信する00 04 00 66に対する拒否である。
-     * opcode 0だけを抑制し、他のopcodeへの拒否はROMの処理へ渡す。
+     * opcode 0Opcode 0 is the rejection for 00 04 00 66 received from the Switch.
+     * opcode 0Suppress only opcode 0; pass rejections of other opcodes through to ROM.
      */
     if ((opcode & 0xff) == 0) {
         g_lmp_not_accepted_suppressed++;

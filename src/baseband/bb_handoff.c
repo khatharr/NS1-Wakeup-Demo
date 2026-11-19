@@ -50,8 +50,8 @@ static void acl_handoff_controller(void *handoff_arg)
             continue;
         }
         /*
-         * - hci_env[17 + 7*i]には、r_hci_bt_acl_bdaddr_registerが下位バイト先頭の順序でBD_ADDRを6バイト複製する。
-         * - request->targetは表示順で保持しているため、比較時にバイト順を反転する。
+         * - hci_env[17 + 7*i]r_hci_bt_acl_bdaddr_register copies the six-byte BD_ADDR into hci_env[17 + 7*i] least-significant byte first.
+         * - request->targetrequest->target is stored in display order, so reverse the byte order for comparison.
          */
         bool same_peer = true;
         for (uint8_t j = 0; j < 6; ++j) {
@@ -68,7 +68,7 @@ static void acl_handoff_controller(void *handoff_arg)
         }
     }
 
-    // フェーズ2の取得時にはスケジュール要素だけを削除しているため、フレームフォーマット3の受信を再登録する
+    // Only the schedule element was removed during Phase 2 capture; re-register frame-format-3 reception.
     uint16_t reject_flags = 0;
     reject_flags |= request->prepare_state != ACL_PREPARE_DONE ? UINT16_C(1) << 0 : 0;
     reject_flags |= request->prepare_result != ESP_OK ? UINT16_C(1) << 1 : 0;
@@ -91,9 +91,9 @@ static void acl_handoff_controller(void *handoff_arg)
         return;
     }
     /*
-     * - HCI 0x0442の停止がstatus 0x0cで拒否されても、フェーズ2のcallbackが再登録した
-     *   CSB受信要素が残存する。
-     * - コントローラー内部で直接停止して競合を防ぐ。
+     * - HCI 0x0442Even if HCI 0x0442 stop is rejected with status 0x0c, the Phase 2 callback may have re-registered
+     *   CSBa CSB receive element that remains active.
+     * - Stop it directly inside the controller to prevent contention.
      */
     if (ld_csb_rx_env != NULL) {
         (void)r_ld_csb_rx_stop();
@@ -106,9 +106,9 @@ static void acl_handoff_controller(void *handoff_arg)
         return;
     }
     /*
-     * - 受信descriptorのリングバッファと添字はACL受信とCSB受信で共有される
-     *   (添字はld_env+0x1AA = 0x3ffb96ba)。
-     * - ウェイクアップ用の受信を継続するとACLリンクの受信と競合する。
+     * - ACL reception and CSB reception share the receive-descriptor ring buffer and index
+     *   ((index at ld_env+0x1AA = 0x3ffb96ba).
+     * - Continuing wake-up reception would conflict with reception on the ACL link.
      */
     phase2_restore_hook();
 
@@ -123,9 +123,9 @@ static void acl_handoff_controller(void *handoff_arg)
     acl_control[2] = (uint16_t)(request->clock_delta & UINT32_C(0xffff));
     acl_control[3] = (uint16_t)((request->clock_delta >> 16) & UINT32_C(0x07ff));
     /*
-     * - +0x08にはLT_ADDR(bit8~10)、EDR(bit11)、白色化の無効化(bit12)、AFH(bit14)が割り当てられている。
-     * - ウェイクアップの往復は白色化なしだが、ACLリンク生成後は通常のACLリンクである。
-     * - 白色化を有効に設定しないと受信したヘッダーのHECが成立せず、パケットが破棄される。
+     * - +0x08+0x08 stores LT_ADDR (bits 8-10), EDR (bit 11), whitening disabled (bit 12), and AFH (bit 14).
+     * - The wake-up exchange is unwhitened, but the link becomes a normal ACL link after creation.
+     * - Unless whitening is enabled, the received header fails its HEC check and the packet is discarded.
      */
     acl_control[4] = (uint16_t)((acl_control[4] & ~(UINT16_C(0x4700) |
                                   CS_LINKCNTL_WHITENING_DSB)) |
@@ -140,30 +140,30 @@ static void acl_handoff_controller(void *handoff_arg)
     acl_control[8] = (uint16_t)(request->bch34 & UINT64_C(0xffff));
     acl_control[9] = (uint16_t)((request->bch34 >> 16) & UINT64_C(0xffff));
     acl_control[10] = (uint16_t)((request->bch34 >> 32) & UINT64_C(0x3));
-    /* r_ld_pscan_evt_handler(0x4003f2cf)がページスキャン用のcontrol structureを
-     * ESP32が周辺側となるACLリンク用へ変換するときに書き込む値と一致させる。 */
+    /* r_ld_pscan_evt_handler(0x4003f2cf)Match the value r_ld_pscan_evt_handler (0x4003f2cf) writes when converting a page-scan control structure
+     * ESP32into one for an ACL link where the ESP32 acts as a peripheral. */
     acl_control[11] |= CS_HOPCNTL_FH_EN;
     acl_control[12] &= (uint16_t)~UINT16_C(0x0008);
     acl_control[13] = 48;
 
     /*
-     * 1. lm_page_scan_end_ind_handler(0x40052e40)がr_lc_start直前に行う準備と同じ順序で書き込む。
-     * 2. r_ld_acl_startだけを呼ぶと、下位リンクだけが生成され、lc_envとリンク制御タスクの内部状態が生成されない。
+     * 1. lm_page_scan_end_ind_handler(0x40052e40)Write in the same order as lm_page_scan_end_ind_handler (0x40052e40) prepares immediately before r_lc_start.
+     * 2. r_ld_acl_startCalling r_ld_acl_start alone creates only the lower-level link, not lc_env or the link-control task state.
      */
     uint8_t *const lm_link_record =
         &lm_env[LM_LINK_RECORD_BASE + LM_LINK_RECORD_STRIDE * link_id];
     lc_bd_addr_t peer_addr;
     for (uint8_t i = 0; i < 6; ++i) {
-        /* request->targetは表示順(先頭がMSB)で保持する。ROMの経路へ渡す値は
-         * r_ld_util_fhs_unpkが展開した下位バイト先頭の順序なので、この処理で反転する。 */
+        /* request->targetrequest->target is stored in display order (MSB first); the ROM path expects the
+         * r_ld_util_fhs_unpkleast-significant-byte-first order produced by r_ld_util_fhs_unpk, so reverse it here. */
         peer_addr.addr[i] = request->target[5 - i];
         lm_link_record[i] = request->target[5 - i];
     }
     lm_link_record[LM_LINK_STATE_OFFSET] = LM_LINK_STATE_CONNECTED;
     lm_link_record[LM_LINK_ROLE_OFFSET] = ACL_ROLE_PERIPHERAL;
     /*
-     * - LMリンク記録の+8はLT_ADDRだが、ESP32がBluetooth周辺側となるACLリンクの通常経路では書き込まれない。
-     * - 中央側の3経路だけが使用するフィールドなので、この処理では変更しない。
+     * - LMLM link record +8 contains LT_ADDR, but the normal path for an ESP32 peripheral ACL link does not write it.
+     * - Only three central-role paths use this field, so do not modify it here.
      */
 
     void **const rom_ip_funcs = *(void ***)PHASE2_ROM_IP_FUNCS_PTR_ADDR;
@@ -189,19 +189,19 @@ static void acl_handoff_controller(void *handoff_arg)
     hci_bdaddr_register(link_id, lm_link_record);
     request->lc_start_called = true;
     /*
-     * - class of deviceは0に設定する。
-     * - Switchのウェイクアップ応答にはFHSが含まれない。
-     *   そのためSwitchのclass of deviceを取得できない。
-     * - この値はlc_env+54~56へ入り、HCI Connection Requestイベントに含まれるだけで、リンク生成条件には影響しない。
+     * - class of deviceSet class of device to zero.
+     * - SwitchThe Switch wake-up response contains no FHS.
+     *   Therefore the Switch class of device is unavailable.
+     * - This value is placed in lc_env+54-56 and only included in HCI Connection Request; it does not affect link creation.
      */
     lc_start(link_id, LC_START_REASON_PAGE_SCAN, peer_addr, 0, 0, 0,
              lm_env[LM_ENV_DEFAULT_LINK_POLICY]);
 
     /*
-     * - r_lc_startの後に、ROMがACLリンクを生成するときと同じ値へ設定する。
-     *   フェーズ2の受信向け設定をACL用の値へ変更しないと、パケットヘッダーを復号できてもペイロードで破棄される。
-     * - +0x14はBCHの3番目のワードで、ACLリンクでは下位2ビットだけを使用する。
-     * - +0x5Eのbit12とbit13はACLリンクを生成する3経路すべてが設定するフィールドだが、ページスキャンの初期化で0になるため、この処理で明示的に設定する。
+     * - r_lc_startAfter r_lc_start, set the same values ROM uses when creating an ACL link.
+     *   Unless the Phase 2 reception settings are changed to ACL values, packet headers may decode but payloads will be discarded.
+     * - +0x14+0x14 is the third BCH word; an ACL link uses only its lowest two bits.
+     * - +0x5EBits 12 and 13 at +0x5E are set by all three ACL-creation paths, but page-scan initialization clears them, so set them explicitly here.
      */
     acl_control[10] = (uint16_t)((request->bch34 >> 32) & UINT64_C(0x3));
     acl_control[47] |= UINT16_C(0x3000);
@@ -209,10 +209,10 @@ static void acl_handoff_controller(void *handoff_arg)
     lmp_not_accepted_hook_install();
     packet_type_hook_install();
     /*
-     * - フェーズ2の受信開始前に保存した値を+0x60へ書き込む。
-     * - +0x60はハードウェアが最後に受理したSEQNを保持するフィールドである。
-     *   フェーズ2の応答(SEQN=1)を受けると0x0004が0x0405へ変わる。
-     * - この値を復元せずACLリンクへ移ると、Switchの最初のLMPが再送とみなされて破棄される。
+     * - Write the value saved before Phase 2 reception began to +0x60.
+     * - +0x60+0x60 holds the last SEQN accepted by hardware.
+     *   Receiving the Phase 2 response (SEQN=1) changes 0x0004 to 0x0405.
+     * - If this value is not restored for ACL, the Switch's first LMP packet is mistaken for a retransmission and discarded.
      */
     if (g_phase2_capture.tail_first_taken) {
         request->cs60_before = acl_control[48];
@@ -247,17 +247,17 @@ static void acl_handoff_controller(void *handoff_arg)
     if ((lc_start_flags & (LC_START_FLAG_LC_ENV | LC_START_FLAG_LD_ACL_ENV)) ==
         (LC_START_FLAG_LC_ENV | LC_START_FLAG_LD_ACL_ENV)) {
         /*
-         * 1. LMP_host_connection_reqを送信する。
-         *    SwitchはこのPDUを受信するまでLMPを送信しない。
-         *    ESP32から送信するとSwitchも同じPDUを返す。
-         *    lmp_host_con_req_handlerが処理して初めてHCI Connection Requestがホストへ通知される。
-         * 2. リンク制御タスクへ内部メッセージ0x0518を送信する。
-         *    受信側のlc_op_hl_cnx_ind_handler(0x400293fc)は、リンク処理の内部状態が2または5の場合だけ処理する。
-         *    リンク情報を通常のController処理へ登録した時点では5である。
-         * 3. 送信後、ROMはLMP_acceptedを待つために内部状態を20へ変更する。
-         *    後続タスクはSwitchのLMP_host_connection_reqを処理できるように内部状態を5へ変更する。
-         * 4. ホスト側のGAP接続完了イベントを契機にするとイベントが通知されない場合がある。
-         *    リンク情報を通常のController処理へ登録した時点で通知すればこの問題を回避できる。
+         * 1. LMP_host_connection_reqSend LMP_host_connection_req.
+         *    SwitchThe Switch does not transmit LMP until it receives this PDU.
+         *    ESP32When the ESP32 sends it, the Switch sends the same PDU in response.
+         *    lmp_host_con_req_handlerHCI Connection Request is delivered to the host only after lmp_host_con_req_handler processes it.
+         * 2. Send internal message 0x0518 to the link-control task.
+         *    Receiver lc_op_hl_cnx_ind_handler (0x400293fc) processes it only when the internal link state is 2 or 5.
+         *    The state is 5 when the link is registered with normal controller processing.
+         * 3. After transmission ROM changes the internal state to 20 while waiting for LMP_accepted.
+         *    The follow-up task changes it back to 5 so the Switch's LMP_host_connection_req can be processed.
+         * 4. Using the host GAP connection-complete event as the trigger can fail if that event is not delivered.
+         *    Trigger when the link is registered with normal controller processing to avoid this problem.
          */
         {
             const ke_state_get_fn_t ke_state_get =
@@ -271,9 +271,9 @@ static void acl_handoff_controller(void *handoff_arg)
             request->host_connection_request_posted = true;
         }
         /*
-         * - LMP_setup_completeはこの処理では送信しない。送信するとROMがリンク処理の内部状態を1へ変更し、その後に届く
-         *   SwitchのLMP_host_connection_reqが処理されない。
-         * - Switchの要求をホストが受理した時点で、ROMがこのPDUを送信する。
+         * - LMP_setup_completeDo not transmit LMP_setup_complete here; doing so makes ROM change the internal link state to 1, preventing processing of
+         *   Switchthe Switch's later LMP_host_connection_req.
+         * - SwitchROM transmits this PDU once the host accepts the Switch's request.
          */
         request->result = ESP_OK;
         request->link_id = link_id;
@@ -282,8 +282,8 @@ static void acl_handoff_controller(void *handoff_arg)
         return;
     }
     /*
-     * - ke_mallocが失敗した場合、ROM側はassert_errを呼んだあと状態を変更せずに呼び出し元へ制御を返す。
-     * - lm_envの記録とhci_envの登録だけが変更された状態で維持されるため、受信要素を復元する前に、これらを変更前の値へ設定する。
+     * - ke_mallocIf ke_malloc fails, ROM calls assert_err and returns without changing state.
+     * - lm_envOnly the lm_env record and hci_env registration have changed; restore their previous values before restoring the receive element.
      */
     lm_link_record[LM_LINK_STATE_OFFSET] = LM_LINK_STATE_PSCAN_RESERVED;
     lm_link_record[LM_LINK_ROLE_OFFSET] = 0;
@@ -313,7 +313,7 @@ static void acl_handoff_controller(void *handoff_arg)
     }
     pscan_env[0x50] = (uint8_t)(request->clock_delta & 1);
 
-    // フェーズ3の送信後2500usだけフレームフォーマット3の受信を有効にし、受信成功時のcallbackだけが0x0404を生成する
+    // Enable frame-format-3 reception for 2500 us after Phase 3; only the successful-reception callback generates 0x0404.
     request->pscan_rx_active = true;
     request->pscan_rx_insert_now = r_ld_read_clock() & ACL_CLOCK_MASK;
     __asm__ __volatile__("memw" ::: "memory");
@@ -334,19 +334,19 @@ static void acl_handoff_controller(void *handoff_arg)
 
 #define ACL_FOLLOWUP_FAST_MS 900
 /*
- * - 900ms経過後は1ms間隔で待機し、ページスキャンによる再接続より後まで実行する。
- * - このタスクが登録した2つのフックを解除するため、指定時間まで終了しない。
+ * - 900msAfter 900 ms, wait in 1 ms intervals and continue past the page-scan reconnection.
+ * - Do not finish before the specified time, because this task must remove the two hooks it installed.
  */
 #define ACL_FOLLOWUP_MS 8000
 
 lc_version_req_t g_lc_version_req;
 volatile bool g_con_req_dispatched;
 
-/* リンク情報を通常のController処理へ登録してからESP32のLMP_version_reqを送信するまでの待機時間。
- * SwitchのLMP_host_connection_reqが到着する時刻より後に設定する。 */
+/* Wait time between registering the link with normal controller processing and transmitting the ESP32 LMP_version_req.
+ * SwitchSet it later than the expected arrival of the Switch's LMP_host_connection_req. */
 #define LC_VERSION_REQ_DELAY_US 200000
-/* リンク情報を通常のController処理へ登録してからHCI Connection Requestを先行通知するまでの待機時間。
- * ROMが通知済みの場合はこの経路を実行しない。 */
+/* Wait time between registering the link with normal controller processing and proactively notifying HCI Connection Request.
+ * ROMSkip this path if ROM has already delivered the notification. */
 #define CON_REQ_INJECT_DELAY_US 300000
 
 static void acl_followup_task(void *task_arg)
@@ -358,7 +358,7 @@ static void acl_followup_task(void *task_arg)
     while (esp_timer_get_time() - followup_start_us <
            (int64_t)ACL_FOLLOWUP_MS * 1000) {
         /*
-         * ROMがリンク処理の内部状態を20へ変更した場合、SwitchのLMP_host_connection_reqを処理できるように内部状態を5へ変更する。
+         * ROMIf ROM changed the internal link state to 20, restore it to 5 so the Switch's LMP_host_connection_req can be processed.
          */
         if (!g_lc_idle_state_dispatched && lc_state[link_id] == 20) {
             g_lc_idle_state_dispatched = true;
@@ -369,9 +369,9 @@ static void acl_followup_task(void *task_arg)
                                                    &g_lc_idle_state_request, false);
         }
         /*
-         * ESP32からLMPを送信するとリンク処理の内部状態が5から別の値へ変化する。
-         * LMP_host_connection_reqは内部状態が5の場合にのみ処理される。
-         * (`lmp_host_con_req_handler` 0x4002b402)が処理するため、Switchの要求を処理するまで送信しない。
+         * ESP32Sending LMP from the ESP32 changes the internal link state from 5 to another value.
+         * LMP_host_connection_reqLMP_host_connection_req is processed only when the internal state is 5.
+         * (`lmp_host_con_req_handler` 0x4002b402)It is handled by lmp_host_con_req_handler (0x4002b402); do not transmit until the Switch's request is processed.
          */
         if (!g_lc_version_req.requested &&
             esp_timer_get_time() - followup_start_us >= LC_VERSION_REQ_DELAY_US) {
@@ -382,12 +382,12 @@ static void acl_followup_task(void *task_arg)
                                                    &g_lc_version_req, false);
         }
         /*
-         * 1. SwitchのLMP_host_connection_reqを処理してリンク処理の内部状態が5になった後に、ホストへHCI Connection Requestを通知する。
-         * 2. 通知しない場合、Switchは35msでLMP_host_connection_reqの処理を終了する。
-         *    ホストがAccept Connection Requestを返すとControllerがLMP_acceptedを送信するため、Switchはその応答を待機している。
-         * 3. ROMがHCI Connection Requestを通知済みの場合は重複通知しない。
-         *    通知済みの場合、`lmp_host_con_req_handler`が0x4002b461でlc_env+86へ1を書き込む。
-         *    重複通知すると、ホストが同じSwitchからの着信を2回受信する。
+         * 1. SwitchNotify the host of HCI Connection Request after processing the Switch's LMP_host_connection_req and returning the internal state to 5.
+         * 2. Without notification, the Switch finishes processing LMP_host_connection_req after 35 ms.
+         *    Accept Connection Request from the host makes the controller send LMP_accepted, which the Switch is awaiting.
+         * 3. ROMDo not send a duplicate notification if ROM already sent HCI Connection Request.
+         *    If already sent, lmp_host_con_req_handler wrote 1 to lc_env+86 at 0x4002b461.
+         *    Duplicate notification would make the host receive two incoming requests from the same Switch.
          */
         if (g_lc_version_req.requested && !g_lc_version_req.con_req_sent &&
             !g_con_req_dispatched &&
@@ -448,8 +448,8 @@ esp_err_t switch1_acl_handoff_start(const uint8_t bd_addr[6], uint64_t bch34,
     xTaskCreate(acl_followup_task, "aclfollowup", 2560, NULL, 5, NULL);
 
     /*
-     * - falseはControllerのキューが満杯の場合に直ちに失敗を返す指定である。
-     * - callbackは待機やHCIコマンドを実行せず、フレームフォーマット3のスケジュール要素だけを登録する。
+     * - falsefalse means fail immediately if the controller work queue is full.
+     * - callbackThe callback does not wait or issue HCI commands; it only registers the frame-format-3 schedule element.
      */
     if (btdm_dispatch_work_to_controller(acl_handoff_controller,
                                          &g_acl_handoff, false) != 0) {
@@ -476,8 +476,8 @@ bool switch1_lc_start_status(uint8_t *out_lc_state, uint8_t *out_flags)
 }
 
 /*
- * 1. r_lc_detach(0x4002037c)は(link_id, reason)を受け取り、リンク処理の内部状態を25へ変更してLMP_detachを送信する。
- * 2. 内部状態が26、27の順に変化した後にリンクを解放し、ホストへHCI Disconnection Completeを通知する。
+ * 1. r_lc_detach(0x4002037c)r_lc_detach (0x4002037c) accepts (link_id, reason), changes the internal link state to 25, and sends LMP_detach.
+ * 2. After the state changes to 26 and then 27, it frees the link and notifies the host with HCI Disconnection Complete.
  */
 #define IP_FUNCS_LC_DETACH_INDEX (UINT16_C(0x2cc) / sizeof(void *))
 #define LC_DETACH_REASON_REMOTE_USER 19
@@ -500,7 +500,7 @@ static void acl_detach_controller(void *detach_arg)
     }
     lc_detach(link_id, LC_DETACH_REASON_REMOTE_USER);
     /*
-     * - s_acl_detach_requestedがtrueに設定されている間は1サイクルにつき1回しか要求できない。
+     * - s_acl_detach_requestedWhile s_acl_detach_requested is true, permit only one request per cycle.
      */
     __asm__ __volatile__("memw" ::: "memory");
     s_acl_detach_requested = false;
@@ -516,9 +516,9 @@ uint8_t switch1_acl_lc_state(void)
 }
 
 /*
- * - r_lc_release(0x4001f8a8)は、LMP_detachの往復を待たずにESP32側のリンクを解放する。
- * - Switchがそのリンクの受信を停止して切断が完了しない場合に使用する。
- * - 解放するとROMがホストへHCI Disconnection Completeを通知し、ホスト側スタックの解放処理も実行される。
+ * - r_lc_release(0x4001f8a8)r_lc_release (0x4001f8a8) releases the ESP32-side link without waiting for an LMP_detach exchange.
+ * - SwitchUse if the Switch stops receiving on the link and disconnection cannot complete.
+ * - When freed, ROM notifies the host with HCI Disconnection Complete and releases host-stack state as well.
  */
 #define ROM_LC_RELEASE_ADDR UINT32_C(0x4001f8a8)
 
@@ -552,8 +552,8 @@ esp_err_t switch1_acl_release(void)
 }
 
 /*
- * - 切断要求を処理できない場合は、リンク処理の内部状態を5へ変更する。
- * - r_lc_detachはLMP処理中の場合、状態を変更せずに呼び出し元へ制御を返す。
+ * - If a disconnect request cannot be processed, change the internal link state to 5.
+ * - r_lc_detachIf LMP processing is underway, r_lc_detach returns without changing the state.
  */
 esp_err_t switch1_acl_force_idle(void)
 {
@@ -588,16 +588,16 @@ esp_err_t switch1_acl_detach(void)
         return ESP_ERR_INVALID_STATE;
     }
     /*
-     * 1. `r_lc_detach`(0x4002037c)はリンク処理の内部状態を25へ変更してLMP_detachを送信する。
-     * 2. 送信完了時に内部状態が26へ変わり、`r_lc_release`(0x4001f8a8)の実行時に27へ変わる。
-     * 3. 内部状態が25~27の場合は切断処理の完了を待機する。
-     *    呼び出し側が切断失敗と判断して再起動しないよう、成功を返す。
+     * 1. `r_lc_detach`(0x4002037c)r_lc_detach (0x4002037c) changes the internal link state to 25 and sends LMP_detach.
+     * 2. State becomes 26 on transmit completion, then 27 when r_lc_release (0x4001f8a8) runs.
+     * 3. If internal state is 25-27, wait for disconnection to complete.
+     *    Return success so the caller does not misinterpret it as a failed disconnect and reboot.
      */
     if (lc_state[link_id] >= 25 && lc_state[link_id] <= 27) {
         return ESP_OK;
     }
     s_acl_detach_requested = true;
-    // btdm_dispatch_work_to_controllerは成功時に0を返す。
+    // btdm_dispatch_work_to_controllerbtdm_dispatch_work_to_controller returns 0 on success.
     if (btdm_dispatch_work_to_controller(acl_detach_controller,
                                          (void *)(uintptr_t)link_id, false) != 0) {
         s_acl_detach_requested = false;
