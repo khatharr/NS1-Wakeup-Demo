@@ -34,7 +34,7 @@
 // Wait 800 ms for the Switch to release the previous ACL/L2CAP session and become ready for HID initialization.
 #define WAKE_PAGE_GAP_US INT64_C(800000)
 #define STATUS_INTERVAL_US UINT64_C(5000000)
-#define AUTO_A_DELAY_US INT64_C(2000000)
+#define AUTO_A_DELAY_US INT64_C(1000000)
 #define AUTO_A_PRESS_US INT64_C(100000)
 #define AUTO_A_RELEASE_US INT64_C(100000)
 
@@ -608,7 +608,7 @@ void swpro_protocol_task(void *argument)
             swpro_hid_override_a(false, false);
             auto_a_deadline_us = now + AUTO_A_DELAY_US;
             auto_a_state = AUTO_A_WAIT;
-            ESP_LOGI(TAG, "Auto-unlock: A press scheduled 2 seconds after HID connection");
+            ESP_LOGI(TAG, "Auto-unlock: A press scheduled 1 second after HID connection");
         } else if (auto_a_state == AUTO_A_WAIT && now >= auto_a_deadline_us) {
             swpro_hid_override_a(true, true);
             auto_a_deadline_us = now + AUTO_A_PRESS_US;
