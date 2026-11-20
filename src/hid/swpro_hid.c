@@ -28,6 +28,7 @@
 #define SUBCMD_ENABLE_IMU 0x40
 
 #define STICK_CENTER UINT32_C(0x00800800)
+#define SWPRO_BUTTON_A (UINT32_C(1) << 3)
 
 static const uint8_t s_report_descriptor[] = {
     0x05, 0x01, 0x09, 0x05, 0xA1, 0x01, 0x06, 0x01, 0xFF,
@@ -80,6 +81,8 @@ static swpro_input_t s_input = {
     .accel = {0, 0, 4096},
 };
 static uint32_t s_input_frames;
+static bool s_override_a;
+static bool s_override_a_pressed;
 
 static volatile uint8_t s_reporting_mode = 0x30;
 static volatile uint8_t s_imu_mode;
@@ -98,6 +101,14 @@ void swpro_hid_set_input(const swpro_input_t *input)
     portENTER_CRITICAL(&s_input_lock);
     s_input = *input;
     s_input_frames++;
+    portEXIT_CRITICAL(&s_input_lock);
+}
+
+void swpro_hid_override_a(bool enabled, bool pressed)
+{
+    portENTER_CRITICAL(&s_input_lock);
+    s_override_a = enabled;
+    s_override_a_pressed = pressed;
     portEXIT_CRITICAL(&s_input_lock);
 }
 
@@ -144,6 +155,12 @@ static void input_snapshot(swpro_input_t *out)
 {
     portENTER_CRITICAL(&s_input_lock);
     *out = s_input;
+    if (s_override_a) {
+        out->buttons &= ~SWPRO_BUTTON_A;
+        if (s_override_a_pressed) {
+            out->buttons |= SWPRO_BUTTON_A;
+        }
+    }
     portEXIT_CRITICAL(&s_input_lock);
 }
 
