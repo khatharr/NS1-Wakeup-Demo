@@ -153,7 +153,7 @@ static esp_err_t bluetooth_init(bool ns2_wake_only)
     return esp_bt_gap_set_page_timeout(WAKE_PAGE_TIMEOUT_SLOTS);
 }
 
-void app_main(void)
+static void wake_main(void)
 {
     const bool ns2_wake_boot = g_restart_marker == NS2_WAKE_RESTART_MARKER;
     if (ns2_wake_boot) {
@@ -201,4 +201,9 @@ void app_main(void)
     // The Bluetooth controller runs on Core 1.
     // Pin burst-detection polling to Core 0 so it does not compete with controller processing on the same core.
     xTaskCreatePinnedToCore(wake_tx_task, "wake_tx", 2560, NULL, 6, NULL, 0);
+}
+
+void app_main(void)
+{
+    wake_main();
 }
