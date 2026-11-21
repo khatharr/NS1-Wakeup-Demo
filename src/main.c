@@ -36,6 +36,7 @@
 #include "wakeup_code.h"
 #include "swpro_spi.h"
 #include "ns2_wake.h"
+#include "wifi_mode.h"
 
 #define TAG "swpro"
 

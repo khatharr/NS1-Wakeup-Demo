@@ -1,5 +1,5 @@
 idf_component_register(
-    SRCS "main.c"
+    SRCS "main.c" "wifi_mode.c"
          "bt/swpro_link.c" "bt/swpro_pairing.c" "bt/host_sec_state.c"
          "hid/swpro_hid.c" "hid/swpro_spi.c"
          "bridge/swpro_uart.c"
