@@ -5,7 +5,8 @@
 
 /**
  * Save the configured Wi-Fi station credentials to NVS.
- * Requires an initialized Wi-Fi driver in station mode.
+ * Initializes all required subsystems; call once from app_main on a fresh boot.
+ * Returns after saving or reporting an error, without starting Wi-Fi.
  */
 esp_err_t wifi_inject_credentials(void);
 

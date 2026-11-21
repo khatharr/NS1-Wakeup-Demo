@@ -2,6 +2,7 @@
 
 #include "esp_wifi.h"
 #include "esp_event.h"
+#include "esp_log.h"
 #include "esp_netif.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
@@ -43,7 +44,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t base,
     }
 }
 
-// Provision credentials after Wi-Fi initialization and station-mode selection.
+// Standalone provisioning entry point. Call once from app_main on a fresh boot.
 // Not part of normal startup; calling this overwrites the stored configuration.
 esp_err_t wifi_inject_credentials(void)
 {
@@ -54,13 +55,56 @@ esp_err_t wifi_inject_credentials(void)
             .password = "placeholder",
         },
     };
+    wifi_init_config_t init_config = WIFI_INIT_CONFIG_DEFAULT();
+    esp_err_t err;
+    const char *step;
 
-    // Persist station settings in NVS instead of keeping them only in RAM.
-    esp_err_t err = esp_wifi_set_storage(WIFI_STORAGE_FLASH);
-    if (err != ESP_OK) {
-        return err;
+    // Initialize NVS without erasing existing credentials or Bluetooth bonds.
+    step = "nvs_flash_init";
+    err = nvs_flash_init();
+    if (err != ESP_OK) goto failed;
+
+    // Set up networking and the event loop before initializing the driver.
+    step = "esp_netif_init";
+    err = esp_netif_init();
+    if (err != ESP_OK) goto failed;
+
+    step = "esp_event_loop_create_default";
+    err = esp_event_loop_create_default();
+    if (err != ESP_OK) goto failed;
+
+    step = "esp_netif_create_default_wifi_sta";
+    if (esp_netif_create_default_wifi_sta() == NULL) {
+        err = ESP_ERR_NO_MEM;
+        goto failed;
     }
-    return esp_wifi_set_config(WIFI_IF_STA, &config);
+
+    step = "esp_wifi_init";
+    err = esp_wifi_init(&init_config);
+    if (err != ESP_OK) goto failed;
+
+    step = "esp_wifi_set_mode";
+    err = esp_wifi_set_mode(WIFI_MODE_STA);
+    if (err != ESP_OK) goto failed;
+
+    // Save the station configuration directly to NVS via the Wi-Fi API.
+    step = "esp_wifi_set_storage";
+    err = esp_wifi_set_storage(WIFI_STORAGE_FLASH);
+    if (err != ESP_OK) goto failed;
+
+    step = "esp_wifi_set_config";
+    err = esp_wifi_set_config(WIFI_IF_STA, &config);
+    if (err != ESP_OK) goto failed;
+
+    // Do not start Wi-Fi, register connection handlers, or restart the ESP32.
+    ESP_LOGI("wifi_mode", "Wi-Fi credentials saved to flash");
+    return ESP_OK;
+
+failed:
+    // Return normally rather than aborting and repeatedly rebooting.
+    ESP_LOGE("wifi_mode", "Credential provisioning failed at %s: %s",
+             step, esp_err_to_name(err));
+    return err;
 }
 
 // Initialize Wi-Fi once per boot and block until DHCP succeeds or an error occurs.
