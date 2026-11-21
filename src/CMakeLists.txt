@@ -10,7 +10,7 @@ idf_component_register(
          "baseband/bb_stage2.c"
          "baseband/bb_handoff.c" "baseband/bb_lmp.c"
     INCLUDE_DIRS "." "bt" "hid" "bridge" "wake" "baseband"
-    REQUIRES bt esp_hid nvs_flash esp_timer esp_driver_uart
+    REQUIRES bt esp_hid nvs_flash esp_timer esp_driver_uart esp_wifi esp_netif esp_event lwip
 )
 
 # Add Bluedroid internal headers to the include path so CSB HCI commands can be constructed directly.
