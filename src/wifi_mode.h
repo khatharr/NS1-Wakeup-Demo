@@ -18,4 +18,7 @@ esp_err_t wifi_inject_credentials(void);
  */
 esp_err_t wifi_connect(void);
 
+/** Connect to Wi-Fi and listen for the UDP wake trigger. */
+void wifi_main(void);
+
 #endif
