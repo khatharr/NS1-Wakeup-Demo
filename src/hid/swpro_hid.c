@@ -201,7 +201,7 @@ static void report_set_imu(uint8_t report[REPORT_SIZE], const swpro_input_t *inp
     memcpy(&report[36], group, sizeof(group));
 }
 
-void swpro_hid_send_report(void)
+esp_err_t swpro_hid_send_report(void)
 {
     swpro_input_t input;
     uint8_t report[REPORT_SIZE] = {0};
@@ -216,6 +216,7 @@ void swpro_hid_send_report(void)
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "Failed to send input report: %s", esp_err_to_name(err));
     }
+    return err;
 }
 
 static void fill_pairing_reply(uint8_t report[REPORT_SIZE], uint8_t phase)

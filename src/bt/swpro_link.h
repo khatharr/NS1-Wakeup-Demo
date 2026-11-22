@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "esp_event.h"
+#include "boot_ctrl.h"
 #include "esp_gap_bt_api.h"
 #include "esp_sdp_api.h"
 
@@ -66,6 +67,9 @@ void swpro_protocol_task(void *argument);
  * @note Avoid restarting with an active ACL link, since the Switch would retain that link
  */
 void swpro_restart_after_disconnect(uint32_t restart_marker);
+
+/** Stop Bluetooth, disconnect the ACL link, and return to Wi-Fi. */
+void swpro_finish_wake(wake_result_t result) __attribute__((noreturn));
 
 /**
  * @brief Stop automatic paging and connectable mode

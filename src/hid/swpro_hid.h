@@ -49,7 +49,7 @@ void swpro_hid_override_a(bool enabled, bool pressed);
 
 uint32_t swpro_hid_input_frames(void);
 
-void swpro_hid_send_report(void);
+esp_err_t swpro_hid_send_report(void);
 
 /**
  * @brief Return the current input-report interval in microseconds

@@ -1,4 +1,5 @@
 #include "wake_mode.h"
+#include "boot_ctrl.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -176,12 +177,17 @@ void wake_main(void)
     g_reconnect_disabled = g_page_right_after_boot || g_cycle_resume_after_boot;
 
     swpro_pairing_init();
-    ESP_ERROR_CHECK(ns2_wake_init());
+    if (ns2_wake_init() != ESP_OK) {
+        boot_return_wifi(WAKE_ERR_INIT);
+    }
     g_pairing = !swpro_host_exists();
+    if (g_pairing) {
+        boot_return_wifi(WAKE_ERR_NO_HOST);
+    }
 
     if (!wakeup_code_self_check()) {
         ESP_LOGE(TAG, "Switch 1 wake-up code startup self-check failed");
-        abort();
+        boot_return_wifi(WAKE_ERR_INIT);
     }
     ESP_LOGI(TAG, "Switch 1 wake-up code startup self-check passed");
     if (ns2_wake_boot && !ns2_wake_prepare_controller_address()) {
@@ -190,18 +196,26 @@ void wake_main(void)
     }
 
     if (!uart_is_driver_installed(UART_NUM_0)) {
-        ESP_ERROR_CHECK(uart_driver_install(UART_NUM_0, 512, 0, 0, NULL, 0));
+        if (uart_driver_install(UART_NUM_0, 512, 0, 0, NULL, 0) != ESP_OK) {
+            boot_return_wifi(WAKE_ERR_INIT);
+        }
     }
-    ESP_ERROR_CHECK(bluetooth_init(ns2_wake_boot));
+    if (bluetooth_init(ns2_wake_boot) != ESP_OK) {
+        boot_return_wifi(WAKE_ERR_INIT);
+    }
     if (ns2_wake_boot) {
         ns2_wake_advertise_and_restart();
     }
 
     // CSB reception monitoring uses recording arrays and log formatting.
-    xTaskCreate(swpro_uart_task, "uart_input", 4608, NULL, 5, NULL);
-    xTaskCreatePinnedToCore(swpro_protocol_task, "switch_reports", 4096, NULL, 5, NULL, 0);
+    if (xTaskCreate(swpro_uart_task, "uart_input", 4608, NULL, 5, NULL) != pdPASS ||
+        xTaskCreatePinnedToCore(swpro_protocol_task, "switch_reports", 4096, NULL, 5, NULL, 0) != pdPASS) {
+        boot_return_wifi(WAKE_ERR_INIT);
+    }
     // The Bluetooth controller runs on Core 1.
     // Pin burst-detection polling to Core 0 so it does not compete with controller processing on the same core.
-    xTaskCreatePinnedToCore(wake_tx_task, "wake_tx", 2560, NULL, 6, NULL, 0);
+    if (xTaskCreatePinnedToCore(wake_tx_task, "wake_tx", 2560, NULL, 6, NULL, 0) != pdPASS) {
+        boot_return_wifi(WAKE_ERR_INIT);
+    }
 }
 

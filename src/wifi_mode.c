@@ -235,6 +235,8 @@ void wifi_main(void)
         return;
     }
 
+    boot_report_pending_error();
+
     // Blocks until a wake command is received or the socket fails.
     // Connection recovery is handled separately in a later stage.
     wifi_listen();
