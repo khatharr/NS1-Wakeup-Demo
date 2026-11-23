@@ -504,9 +504,9 @@ void try_reconnect(void)
     }
 
     if (g_connect_failures >= CONNECT_FAILURE_LIMIT) {
-        ESP_LOGW(TAG, "Rebooting because HID state remains CONNECTING");
-        vTaskDelay(pdMS_TO_TICKS(50));
-        esp_restart();
+        ESP_LOGE(TAG, "HID connection failed %u times; returning to Wi-Fi",
+                 (unsigned)g_connect_failures);
+        swpro_finish_wake(WAKE_ERR_HID);
     }
 
     const int64_t now = esp_timer_get_time();

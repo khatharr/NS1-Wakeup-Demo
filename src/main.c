@@ -50,9 +50,10 @@ void boot_report_pending_error(void)
         [WAKE_ERR_NO_CONNECTION] = "wake and paging attempts exhausted",
         [WAKE_ERR_INPUT] = "A-button sequence interrupted or failed",
         [WAKE_ERR_RESET] = "unexpected reset during wake",
+        [WAKE_ERR_HID] = "HID connection failures exhausted",
     };
     // Stub for the future UDP logger. Successful operations remain silent.
-    if (s_pending_error > WAKE_OK && s_pending_error <= WAKE_ERR_RESET) {
+    if (s_pending_error > WAKE_OK && s_pending_error <= WAKE_ERR_HID) {
         ESP_LOGE("boot_ctrl", "%s", reasons[s_pending_error]);
     }
     s_pending_error = WAKE_OK;

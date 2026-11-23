@@ -13,6 +13,7 @@ typedef enum {
     WAKE_ERR_NO_CONNECTION,
     WAKE_ERR_INPUT,
     WAKE_ERR_RESET,
+    WAKE_ERR_HID,
 } wake_result_t;
 
 /** Return to Wi-Fi with a retained error code; never returns. */
