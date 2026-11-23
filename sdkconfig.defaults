@@ -29,3 +29,8 @@ CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 # Each failed attempt causes a restart, so this directly adds to retry delay.
 CONFIG_BOOTLOADER_LOG_LEVEL_WARN=y
 CONFIG_BOOTLOADER_LOG_LEVEL=2
+
+# Optimize size and reduce Wi-Fi IRAM use (wake timing handled by BT firmware).
+CONFIG_COMPILER_OPTIMIZATION_SIZE=y
+CONFIG_ESP_WIFI_IRAM_OPT=n
+CONFIG_ESP_WIFI_RX_IRAM_OPT=n
