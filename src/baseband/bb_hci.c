@@ -24,6 +24,9 @@
 
 static const char *TAG = "wake_hci";
 
+// Diagnostic: page without a clock estimate. Set to 1 to restore baseline.
+#define PAGE_USE_CLOCK_OFFSET 0
+
 // Set true only when command failure is allowed and error logging would delay monitoring.
 volatile bool g_suppress_command_error_log;
 
@@ -94,6 +97,11 @@ BOOLEAN __wrap_btsnd_hcic_create_conn(BD_ADDR dest, UINT16 packet_types,
         clock_offset = configured_offset;
         page_scan_rep_mode = 1;
     }
+#if !PAGE_USE_CLOCK_OFFSET
+    // Force Clock_Offset_Valid_Flag=0, even if Bluedroid supplied a
+    // cached offset. Retain the original page scan repetition mode.
+    clock_offset = 0;
+#endif
     ESP_LOGI(TAG,
              "HCI Create Connection: target=%02x:%02x:%02x:%02x:%02x:%02x "
              "Clock_Offset %04x -> %04x, PSRM=%u, PSM=%u, offset_configured=%u",
