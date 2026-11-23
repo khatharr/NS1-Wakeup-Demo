@@ -1,0 +1,1 @@
+@py -3.12 -m platformio --no-ansi run
