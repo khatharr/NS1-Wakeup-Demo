@@ -1,4 +1,10 @@
 #include "wifi_mode.h"
+#include "boot_ctrl.h"
+
+#include <errno.h>
+#include <string.h>
+#include <unistd.h>
+#include "lwip/sockets.h"
 
 #include "esp_wifi.h"
 #include "esp_event.h"
@@ -7,6 +13,10 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
 #include "nvs_flash.h"
+
+// Temporary protocol settings; replace with the remote-control system's values.
+#define WIFI_LISTEN_PORT 49152
+static const char WIFI_WAKE_TRIGGER[] = "wake";
 
 // Event bits shared by the Wi-Fi event loop and the waiting caller.
 #define WIFI_IP_READY BIT0
@@ -172,4 +182,62 @@ esp_err_t wifi_connect(void)
     if (bits & WIFI_CONNECT_FAILED) return s_connect_error;
     if (bits & WIFI_IP_READY) return ESP_OK;
     return ESP_ERR_TIMEOUT;
+}
+
+/* Listen on IPv4 UDP after DHCP succeeds. Only an exact payload match
+ * requests a wake; all other datagrams are silently discarded. */
+static esp_err_t wifi_listen(void)
+{
+    int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (sock < 0) {
+        ESP_LOGE("wifi_mode", "UDP socket failed: errno %d", errno);
+        return ESP_FAIL;
+    }
+
+    struct sockaddr_in addr = {
+        .sin_family = AF_INET,
+        .sin_port = htons(WIFI_LISTEN_PORT),
+        .sin_addr.s_addr = htonl(INADDR_ANY),
+    };
+
+    if (bind(sock, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+        ESP_LOGE("wifi_mode", "UDP bind failed: errno %d", errno);
+        close(sock);
+        return ESP_FAIL;
+    }
+
+    // One extra byte beyond the trigger length rejects longer datagrams
+    // even when recvfrom truncates them to the size of this buffer.
+    char packet[sizeof(WIFI_WAKE_TRIGGER)];
+    for (;;) {
+        ssize_t received = recvfrom(sock, packet, sizeof(packet), 0, NULL, NULL);
+        if (received < 0) {
+            if (errno == EINTR) continue;
+            ESP_LOGE("wifi_mode", "UDP receive failed: errno %d", errno);
+            close(sock);
+            return ESP_FAIL;
+        }
+
+        if (received == sizeof(WIFI_WAKE_TRIGGER) - 1 &&
+            memcmp(packet, WIFI_WAKE_TRIGGER, sizeof(WIFI_WAKE_TRIGGER) - 1) == 0) {
+            close(sock);
+            boot_request_wake();
+        }
+    }
+}
+
+void wifi_main(void)
+{
+    // The socket must not be opened until the station has an IP address.
+    esp_err_t err = wifi_connect();
+    if (err != ESP_OK) {
+        ESP_LOGE("wifi_mode", "Wi-Fi connection failed: %s", esp_err_to_name(err));
+        return;
+    }
+
+    boot_report_pending_error();
+
+    // Blocks until a wake command is received or the socket fails.
+    // Connection recovery is handled separately in a later stage.
+    wifi_listen();
 }

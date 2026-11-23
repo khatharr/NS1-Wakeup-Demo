@@ -37,6 +37,8 @@
 #define AUTO_A_DELAY_US INT64_C(2000000)
 #define AUTO_A_PRESS_US INT64_C(100000)
 #define AUTO_A_RELEASE_US INT64_C(100000)
+// Bound the duration of a wake boot if Bluetooth events never arrive.
+#define WAKE_BOOT_TIMEOUT_US INT64_C(30000000)
 
 typedef enum {
     AUTO_A_IDLE,
@@ -137,7 +139,7 @@ int64_t g_idle_restart_due_us;
 
 // Restarting with an active ACL link does not notify the Switch of disconnection, so the Switch retains the link until its supervision timeout.
 // A connection cycle would repeatedly restart while leaving the ACL link active; always finish disconnecting ACL before restarting.
-void swpro_restart_after_disconnect(uint32_t restart_marker)
+static void disconnect_before_restart(void)
 {
     esp_bd_addr_t host;
     if (g_acl_connected && swpro_host_snapshot(host)) {
@@ -151,9 +153,25 @@ void swpro_restart_after_disconnect(uint32_t restart_marker)
             ESP_LOGW(TAG, "Rebooting without confirming ACL disconnect completion");
         }
     }
+}
+
+void swpro_restart_after_disconnect(uint32_t restart_marker)
+{
+    disconnect_before_restart();
     g_restart_marker = restart_marker;
     vTaskDelay(pdMS_TO_TICKS(20));
     esp_restart();
+}
+
+void swpro_finish_wake(wake_result_t result)
+{
+    // Prevent another connection while finishing the current operation.
+    g_wake_stop_requested = true;
+    g_cycle_enabled = false;
+    swpro_stop_auto_connect("Wake operation finished");
+    disconnect_before_restart();
+    vTaskDelay(pdMS_TO_TICKS(20));
+    boot_return_wifi(result);
 }
 
 void swpro_stop_auto_connect(const char *reason)
@@ -585,10 +603,16 @@ void swpro_protocol_task(void *argument)
     uint32_t last_auto_a_generation = 0;
     int64_t auto_a_deadline_us = 0;
     auto_a_state_t auto_a_state = AUTO_A_IDLE;
+    bool a_press_sent = false;
+    bool a_release_sent = false;
 
     while (true) {
         vTaskDelayUntil(&previous, 1);
         const int64_t now = esp_timer_get_time();
+
+        if (now >= WAKE_BOOT_TIMEOUT_US) {
+            swpro_finish_wake(WAKE_ERR_TIMEOUT);
+        }
 
         idle_restart_step(now);
         connect_cycle_step(now);
@@ -601,9 +625,12 @@ void swpro_protocol_task(void *argument)
         if (!g_hid_connected || swpro_hid_host_stopped()) {
             if (auto_a_state != AUTO_A_IDLE) {
                 swpro_hid_override_a(false, false);
-                auto_a_state = AUTO_A_IDLE;
+                swpro_finish_wake(WAKE_ERR_INPUT);
             }
         } else if (last_auto_a_generation != s_hid_connection_generation) {
+            if (auto_a_state != AUTO_A_IDLE) {
+                swpro_finish_wake(WAKE_ERR_INPUT);
+            }
             last_auto_a_generation = s_hid_connection_generation;
             swpro_hid_override_a(false, false);
             auto_a_deadline_us = now + AUTO_A_DELAY_US;
@@ -621,7 +648,9 @@ void swpro_protocol_task(void *argument)
             ESP_LOGI(TAG, "Auto-unlock: A released");
         } else if (auto_a_state == AUTO_A_RELEASED && now >= auto_a_deadline_us) {
             swpro_hid_override_a(false, false);
-            auto_a_state = AUTO_A_DONE;
+            // Require successful report submission during both phases.
+            swpro_finish_wake(a_press_sent && a_release_sent
+                              ? WAKE_OK : WAKE_ERR_INPUT);
         }
 
         // Suppress state lines during CSB transmission so UART output cannot disrupt the CSB transmission period.
@@ -763,7 +792,10 @@ wake_page_done:
         if (g_hid_connected && !swpro_hid_host_stopped()) {
             if (now >= next_send_us) {
                 next_send_us = now + swpro_hid_report_interval_us();
-                swpro_hid_send_report();
+                if (swpro_hid_send_report() == ESP_OK) {
+                    if (auto_a_state == AUTO_A_PRESSED) a_press_sent = true;
+                    if (auto_a_state == AUTO_A_RELEASED) a_release_sent = true;
+                }
             }
         } else {
             next_send_us = 0;

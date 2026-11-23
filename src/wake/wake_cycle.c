@@ -103,11 +103,8 @@ void idle_restart_step(int64_t now)
         g_wake_tx_active) {
         return;
     }
-    ESP_LOGI(TAG,
-             "Restarting because no connection processing is active. The next attempt "
-             "will start immediately after boot");
-    vTaskDelay(pdMS_TO_TICKS(20));
-    esp_restart();
+    // No connection processing remains active.
+    swpro_finish_wake(WAKE_ERR_INPUT);
 }
 
 void connect_cycle_step(int64_t now)
@@ -218,12 +215,8 @@ void connect_cycle_step(int64_t now)
         break;
 
     case CYCLE_PAGE_WAIT:
-        // Stop paging requests before restarting to prevent automatic reconnection after boot.
-        ESP_LOGI(TAG, "Connection attempt: stopping the page request, restarting, and moving to the next cycle");
-        g_reconnect_disabled = true;
-        g_reconnect_paused = true;
-        g_cycle_wake_tries = 0;
-        swpro_restart_after_disconnect(CYCLE_RESTART_MARKER);
+        // Final paging attempt expired; do not start another indefinite cycle.
+        swpro_finish_wake(WAKE_ERR_NO_CONNECTION);
         break;
 
     case CYCLE_HANDOFF_WAIT:
