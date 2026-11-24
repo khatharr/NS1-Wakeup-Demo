@@ -32,7 +32,7 @@
 
 #define RECONNECT_INTERVAL_US UINT64_C(200000)
 // Wait 800 ms for the Switch to release the previous ACL/L2CAP session and become ready for HID initialization.
-#define WAKE_PAGE_GAP_US INT64_C(800000)
+#define WAKE_PAGE_GAP_US INT64_C(2000000)
 #define STATUS_INTERVAL_US UINT64_C(5000000)
 #define AUTO_A_DELAY_US INT64_C(2000000)
 #define AUTO_A_PRESS_US INT64_C(100000)
