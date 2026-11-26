@@ -11,8 +11,10 @@
 #include "esp_event.h"
 #include "esp_log.h"
 #include "esp_netif.h"
+#include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
+#include "freertos/task.h"
 #include "nvs_flash.h"
 
 // Temporary protocol settings; replace with the remote-control system's values.
@@ -22,37 +24,65 @@ static const char WIFI_WAKE_TRIGGER[] = "wake";
 // Event bits shared by the Wi-Fi event loop and the waiting caller.
 #define WIFI_IP_READY BIT0
 #define WIFI_CONNECT_FAILED BIT1
-// Maximum time to wait for association and DHCP combined.
+#define WIFI_STA_STARTED BIT2
+#define WIFI_STA_STOPPED BIT3
+#define WIFI_ASSOCIATED BIT4
 #define WIFI_CONNECT_TIMEOUT_MS 30000
+#define WIFI_RETRY_DELAY_MS 5000
+#define WIFI_CONNECT_ATTEMPTS 3
+#define WIFI_STATION_EVENT_TIMEOUT_MS 5000
+#define WIFI_RECV_TIMEOUT_MS 1000
 
 static EventGroupHandle_t s_wifi_events;
-// Preserve the connection error before notifying the waiting task.
-static esp_err_t s_connect_error = ESP_FAIL;
+static bool s_wifi_initialized;
+static bool s_station_started;
 
-// Runs on the default ESP-IDF event loop, not in the waiting task.
+static const char *disconnect_reason_name(unsigned reason)
+{
+    switch (reason) {
+    case WIFI_REASON_NO_AP_FOUND: return "AP not found";
+    case WIFI_REASON_AUTH_FAIL: return "authentication failed";
+    case WIFI_REASON_ASSOC_FAIL: return "association failed";
+    case WIFI_REASON_HANDSHAKE_TIMEOUT: return "handshake timeout";
+    case WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT: return "4-way handshake timeout";
+    case WIFI_REASON_BEACON_TIMEOUT: return "beacon timeout";
+    case WIFI_REASON_AUTH_EXPIRE: return "authentication expired";
+    case WIFI_REASON_ASSOC_EXPIRE: return "association expired";
+    case WIFI_REASON_CONNECTION_FAIL: return "connection failed";
+    case WIFI_REASON_ASSOC_LEAVE: return "association left";
+    default: return "see ESP-IDF Wi-Fi reason codes";
+    }
+}
+
+// Only signal events here; all retries and delays run in the Wi-Fi task.
 static void wifi_event_handler(void *arg, esp_event_base_t base,
                                int32_t id, void *data)
 {
     (void)arg;
-    (void)data;
 
     if (base == WIFI_EVENT && id == WIFI_EVENT_STA_START) {
-        // The station has started; begin connecting with its saved configuration.
-        esp_err_t err = esp_wifi_connect();
-        if (err != ESP_OK) {
-            s_connect_error = err;
-            xEventGroupSetBits(s_wifi_events, WIFI_CONNECT_FAILED);
-        }
+        xEventGroupSetBits(s_wifi_events, WIFI_STA_STARTED);
+    } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_STOP) {
+        xEventGroupClearBits(s_wifi_events, WIFI_IP_READY | WIFI_ASSOCIATED);
+        xEventGroupSetBits(s_wifi_events, WIFI_STA_STOPPED);
+    } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_CONNECTED) {
+        xEventGroupSetBits(s_wifi_events, WIFI_ASSOCIATED);
+        ESP_LOGI("wifi_mode", "Station associated; waiting for DHCP");
     } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
-        // Invalidate IP readiness and notify the caller of failure.
-        // Reconnection policy is deliberately left to the caller.
+        const wifi_event_sta_disconnected_t *event = data;
+        ESP_LOGW("wifi_mode", "Station disconnected: reason=%u (%s), RSSI=%d dBm",
+                 (unsigned)event->reason, disconnect_reason_name(event->reason),
+                 (int)event->rssi);
         status_led_set(STATUS_LED_WIFI_WAIT);
-        xEventGroupClearBits(s_wifi_events, WIFI_IP_READY);
-        s_connect_error = ESP_FAIL;
+        xEventGroupClearBits(s_wifi_events, WIFI_IP_READY | WIFI_ASSOCIATED);
         xEventGroupSetBits(s_wifi_events, WIFI_CONNECT_FAILED);
     } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
-        // Association alone is not enough: wait for a usable IPv4 address.
         xEventGroupSetBits(s_wifi_events, WIFI_IP_READY);
+    } else if (base == IP_EVENT && id == IP_EVENT_STA_LOST_IP) {
+        ESP_LOGW("wifi_mode", "Station lost its IPv4 address");
+        status_led_set(STATUS_LED_WIFI_WAIT);
+        xEventGroupClearBits(s_wifi_events, WIFI_IP_READY);
+        xEventGroupSetBits(s_wifi_events, WIFI_CONNECT_FAILED);
     }
 }
 
@@ -119,71 +149,155 @@ failed:
     return err;
 }
 
-// Initialize Wi-Fi once per boot and block until DHCP succeeds or an error occurs.
-esp_err_t wifi_connect(void)
+// Initialize the network stack once per boot, before starting the station.
+static esp_err_t wifi_init(void)
 {
-    // Do not initialize the station and register handlers a second time.
-    if (s_wifi_events != NULL) {
-        return ESP_ERR_INVALID_STATE;
-    }
+    if (s_wifi_initialized) return ESP_OK;
 
-    // Open persistent storage for the Wi-Fi driver without erasing pairing data
-    // or credentials if initialization fails.
+    const char *step = "nvs_flash_init";
     esp_err_t err = nvs_flash_init();
-    if (err != ESP_OK) return err;
+    if (err != ESP_OK) goto failed;
 
-    // Initialize TCP/IP networking and the default event dispatch loop.
+    step = "esp_netif_init";
     err = esp_netif_init();
-    if (err != ESP_OK) return err;
+    if (err != ESP_OK) goto failed;
 
+    step = "esp_event_loop_create_default";
     err = esp_event_loop_create_default();
-    if (err != ESP_OK) return err;
+    if (err != ESP_OK) goto failed;
 
-    // Create the station network interface with the default DHCP client handlers.
+    step = "esp_netif_create_default_wifi_sta";
     if (esp_netif_create_default_wifi_sta() == NULL) {
-        return ESP_ERR_NO_MEM;
+        err = ESP_ERR_NO_MEM;
+        goto failed;
     }
 
-    // Initialize the driver with ESP-IDF defaults, including NVS support.
+    step = "esp_wifi_init";
     wifi_init_config_t config = WIFI_INIT_CONFIG_DEFAULT();
     err = esp_wifi_init(&config);
-    if (err != ESP_OK) return err;
+    if (err != ESP_OK) goto failed;
 
-    // Join an existing access point rather than creating one.
+    step = "esp_wifi_set_mode";
     err = esp_wifi_set_mode(WIFI_MODE_STA);
-    if (err != ESP_OK) return err;
+    if (err != ESP_OK) goto failed;
 
-    // Allocate the synchronization object before any events can notify us.
+    step = "xEventGroupCreate";
     s_wifi_events = xEventGroupCreate();
     if (s_wifi_events == NULL) {
-        return ESP_ERR_NO_MEM;
+        err = ESP_ERR_NO_MEM;
+        goto failed;
     }
 
-    // Register handlers before starting Wi-Fi so early events cannot be missed.
+    step = "register Wi-Fi event handler";
     err = esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID,
                                      wifi_event_handler, NULL);
-    if (err != ESP_OK) return err;
+    if (err != ESP_OK) goto failed;
 
-    err = esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP,
+    step = "register IP event handler";
+    err = esp_event_handler_register(IP_EVENT, ESP_EVENT_ANY_ID,
                                      wifi_event_handler, NULL);
-    if (err != ESP_OK) return err;
+    if (err != ESP_OK) goto failed;
 
-    // Starting the station generates WIFI_EVENT_STA_START, which initiates
-    // the connection in wifi_event_handler. DHCP follows association automatically.
-    err = esp_wifi_start();
-    if (err != ESP_OK) return err;
+    s_wifi_initialized = true;
+    return ESP_OK;
 
-    // Sleep until either event bit is set, or the 30-second timeout expires.
-    // Leave the bits set for subsequent connection-state handling.
-    EventBits_t bits = xEventGroupWaitBits(
-        s_wifi_events, WIFI_IP_READY | WIFI_CONNECT_FAILED,
+failed:
+    ESP_LOGE("wifi_mode", "Wi-Fi initialization failed at %s: %s (0x%x)",
+             step, esp_err_to_name(err), (unsigned)err);
+    return err;
+}
+
+static bool wifi_ip_ready(void)
+{
+    EventBits_t bits = xEventGroupGetBits(s_wifi_events);
+    return (bits & WIFI_IP_READY) && !(bits & WIFI_CONNECT_FAILED);
+}
+
+// Stop the station, but retain the initialized driver, netif and handlers.
+// Wait for the stop event before clearing bits for a new connection attempt.
+static esp_err_t wifi_stop_station(void)
+{
+    if (!s_station_started) return ESP_OK;
+    xEventGroupClearBits(s_wifi_events, WIFI_STA_STOPPED);
+    esp_err_t err = esp_wifi_stop();
+    if (err != ESP_OK) {
+        ESP_LOGE("wifi_mode", "esp_wifi_stop failed: %s (0x%x)",
+                 esp_err_to_name(err), (unsigned)err);
+        return err;
+    }
+    EventBits_t bits = xEventGroupWaitBits(s_wifi_events, WIFI_STA_STOPPED,
+        pdFALSE, pdTRUE, pdMS_TO_TICKS(WIFI_STATION_EVENT_TIMEOUT_MS));
+    if (!(bits & WIFI_STA_STOPPED)) {
+        ESP_LOGE("wifi_mode", "Timed out waiting for station stop event");
+        return ESP_ERR_TIMEOUT;
+    }
+    s_station_started = false;
+    return ESP_OK;
+}
+
+static esp_err_t wifi_connect_once(void)
+{
+    xEventGroupClearBits(s_wifi_events, WIFI_IP_READY | WIFI_CONNECT_FAILED |
+                         WIFI_STA_STARTED | WIFI_STA_STOPPED | WIFI_ASSOCIATED);
+    esp_err_t err = esp_wifi_start();
+    if (err != ESP_OK) {
+        ESP_LOGE("wifi_mode", "esp_wifi_start failed: %s (0x%x)",
+                 esp_err_to_name(err), (unsigned)err);
+        return err;
+    }
+    s_station_started = true;
+    EventBits_t bits = xEventGroupWaitBits(s_wifi_events, WIFI_STA_STARTED,
+        pdFALSE, pdTRUE, pdMS_TO_TICKS(WIFI_STATION_EVENT_TIMEOUT_MS));
+    if (!(bits & WIFI_STA_STARTED)) {
+        ESP_LOGE("wifi_mode", "Timed out waiting for station start event");
+        return ESP_ERR_TIMEOUT;
+    }
+
+    err = esp_wifi_connect();
+    if (err != ESP_OK) {
+        ESP_LOGE("wifi_mode", "esp_wifi_connect failed: %s (0x%x)",
+                 esp_err_to_name(err), (unsigned)err);
+        return err;
+    }
+
+    bits = xEventGroupWaitBits(s_wifi_events, WIFI_IP_READY | WIFI_CONNECT_FAILED,
         pdFALSE, pdFALSE, pdMS_TO_TICKS(WIFI_CONNECT_TIMEOUT_MS));
-
-    // Prefer failure if both bits are present. Initialization and handlers remain
-    // in place on return; the caller is responsible for recovery or reboot.
-    if (bits & WIFI_CONNECT_FAILED) return s_connect_error;
+    if (bits & WIFI_CONNECT_FAILED) return ESP_FAIL;
     if (bits & WIFI_IP_READY) return ESP_OK;
+    ESP_LOGE("wifi_mode", "Connection timeout after %d ms (%s)",
+             WIFI_CONNECT_TIMEOUT_MS,
+             (bits & WIFI_ASSOCIATED) ? "waiting for DHCP" : "waiting for association");
     return ESP_ERR_TIMEOUT;
+}
+
+esp_err_t wifi_connect(void)
+{
+    esp_err_t err = wifi_init();
+    if (err != ESP_OK) return err;
+
+    status_led_set(STATUS_LED_WIFI_WAIT);
+    for (unsigned attempt = 1; attempt <= WIFI_CONNECT_ATTEMPTS; ++attempt) {
+        ESP_LOGI("wifi_mode", "Wi-Fi connection attempt %u/%u",
+                 attempt, (unsigned)WIFI_CONNECT_ATTEMPTS);
+        err = wifi_connect_once();
+        if (err == ESP_OK && wifi_ip_ready()) {
+            ESP_LOGI("wifi_mode", "Wi-Fi connected on attempt %u", attempt);
+            return ESP_OK;
+        }
+        if (err == ESP_OK) err = ESP_FAIL;
+        ESP_LOGE("wifi_mode", "Wi-Fi attempt %u/%u failed: %s (0x%x)",
+                 attempt, (unsigned)WIFI_CONNECT_ATTEMPTS,
+                 esp_err_to_name(err), (unsigned)err);
+
+        esp_err_t stop_err = wifi_stop_station();
+        if (stop_err != ESP_OK) return stop_err;
+
+        if (attempt < WIFI_CONNECT_ATTEMPTS) {
+            ESP_LOGW("wifi_mode", "Retrying Wi-Fi in %d ms", WIFI_RETRY_DELAY_MS);
+            vTaskDelay(pdMS_TO_TICKS(WIFI_RETRY_DELAY_MS));
+        }
+    }
+    return err;
 }
 
 /* Listen on IPv4 UDP after DHCP succeeds. Only an exact payload match
@@ -208,41 +322,72 @@ static esp_err_t wifi_listen(void)
         return ESP_FAIL;
     }
 
+    // Poll readiness even when no UDP traffic arrives.
+    const struct timeval timeout = {
+        .tv_sec = WIFI_RECV_TIMEOUT_MS / 1000,
+        .tv_usec = (WIFI_RECV_TIMEOUT_MS % 1000) * 1000,
+    };
+    if (setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0) {
+        ESP_LOGE("wifi_mode", "UDP receive timeout setup failed: errno %d", errno);
+        close(sock);
+        return ESP_FAIL;
+    }
     status_led_set(STATUS_LED_READY);
 
     // One extra byte beyond the trigger length rejects longer datagrams
     // even when recvfrom truncates them to the size of this buffer.
     char packet[sizeof(WIFI_WAKE_TRIGGER)];
-    for (;;) {
+    while (wifi_ip_ready()) {
         ssize_t received = recvfrom(sock, packet, sizeof(packet), 0, NULL, NULL);
         if (received < 0) {
-            if (errno == EINTR) continue;
+            if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK) continue;
+            if (!wifi_ip_ready()) break;
             ESP_LOGE("wifi_mode", "UDP receive failed: errno %d", errno);
             close(sock);
             return ESP_FAIL;
         }
 
+        if (!wifi_ip_ready()) break;
         if (received == sizeof(WIFI_WAKE_TRIGGER) - 1 &&
             memcmp(packet, WIFI_WAKE_TRIGGER, sizeof(WIFI_WAKE_TRIGGER) - 1) == 0) {
             close(sock);
             boot_request_wake();
         }
     }
+    close(sock);
+    ESP_LOGW("wifi_mode", "Wi-Fi lost; closing UDP listener");
+    return ESP_ERR_INVALID_STATE;
 }
 
 void wifi_main(void)
 {
-    // The socket must not be opened until the station has an IP address.
-    esp_err_t err = wifi_connect();
-    if (err != ESP_OK) {
-        ESP_LOGE("wifi_mode", "Wi-Fi connection failed: %s", esp_err_to_name(err));
-        return;
+    for (;;) {
+        esp_err_t err = wifi_connect();
+        if (err != ESP_OK) {
+            ESP_LOGE("wifi_mode", "Wi-Fi recovery failed: %s (0x%x); rebooting",
+                     esp_err_to_name(err), (unsigned)err);
+            // Also rate-limit reboots if initialization itself fails.
+            vTaskDelay(pdMS_TO_TICKS(WIFI_RETRY_DELAY_MS));
+            esp_restart();
+        }
+
+        boot_report_pending_error();
+        err = wifi_listen();
+        status_led_set(STATUS_LED_WIFI_WAIT);
+        if (err != ESP_ERR_INVALID_STATE && wifi_ip_ready()) {
+            // A local socket failure is not a station association failure.
+            ESP_LOGE("wifi_mode", "UDP listener failed with Wi-Fi connected; rebooting");
+            vTaskDelay(pdMS_TO_TICKS(WIFI_RETRY_DELAY_MS));
+            esp_restart();
+        }
+
+        err = wifi_stop_station();
+        if (err != ESP_OK) {
+            ESP_LOGE("wifi_mode", "Cannot reset Wi-Fi station; rebooting");
+            vTaskDelay(pdMS_TO_TICKS(WIFI_RETRY_DELAY_MS));
+            esp_restart();
+        }
+        ESP_LOGW("wifi_mode", "Reconnecting Wi-Fi in %d ms", WIFI_RETRY_DELAY_MS);
+        vTaskDelay(pdMS_TO_TICKS(WIFI_RETRY_DELAY_MS));
     }
-
-    boot_report_pending_error();
-
-    // Blocks until a wake command is received or the socket fails.
-    // Connection recovery is handled separately in a later stage.
-    wifi_listen();
-    status_led_set(STATUS_LED_WIFI_WAIT);
 }
