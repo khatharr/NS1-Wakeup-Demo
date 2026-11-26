@@ -31,8 +31,8 @@
 #define TAG "swpro"
 
 #define RECONNECT_INTERVAL_US UINT64_C(200000)
-// Wait 800 ms for the Switch to release the previous ACL/L2CAP session and become ready for HID initialization.
-#define WAKE_PAGE_GAP_US INT64_C(800000)
+// Allow the Switch to release the previous ACL/L2CAP session before HID initialization.
+#define WAKE_PAGE_GAP_US INT64_C(2000000)
 #define STATUS_INTERVAL_US UINT64_C(5000000)
 #define AUTO_A_DELAY_US INT64_C(2000000)
 #define AUTO_A_PRESS_US INT64_C(100000)
@@ -504,9 +504,9 @@ void try_reconnect(void)
     }
 
     if (g_connect_failures >= CONNECT_FAILURE_LIMIT) {
-        ESP_LOGW(TAG, "Rebooting because HID state remains CONNECTING");
-        vTaskDelay(pdMS_TO_TICKS(50));
-        esp_restart();
+        ESP_LOGE(TAG, "HID connection failed %u times; returning to Wi-Fi",
+                 (unsigned)g_connect_failures);
+        swpro_finish_wake(WAKE_ERR_HID);
     }
 
     const int64_t now = esp_timer_get_time();
