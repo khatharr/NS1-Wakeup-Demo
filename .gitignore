@@ -8,6 +8,7 @@ __pycache__/
 *.pcap
 *.pcapng
 sdkconfig.old
+sdkconfig.esp32dev
 .vscode/
 .tmp_ar/
 .tmp_*.o
