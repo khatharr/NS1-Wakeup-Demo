@@ -1,5 +1,5 @@
 idf_component_register(
-    SRCS "main.c" "wake_mode.c" "wifi_mode.c"
+    SRCS "main.c" "wake_mode.c" "wifi_mode.c" "status_led.c"
          "bt/swpro_link.c" "bt/swpro_pairing.c" "bt/host_sec_state.c"
          "hid/swpro_hid.c" "hid/swpro_spi.c"
          "bridge/swpro_uart.c"
@@ -10,7 +10,7 @@ idf_component_register(
          "baseband/bb_stage2.c"
          "baseband/bb_handoff.c" "baseband/bb_lmp.c"
     INCLUDE_DIRS "." "bt" "hid" "bridge" "wake" "baseband"
-    REQUIRES bt esp_hid nvs_flash esp_timer esp_driver_uart esp_wifi esp_netif esp_event lwip
+    REQUIRES bt esp_hid nvs_flash esp_timer esp_driver_uart esp_driver_gpio esp_wifi esp_netif esp_event lwip
 )
 
 # Add Bluedroid internal headers to the include path so CSB HCI commands can be constructed directly.

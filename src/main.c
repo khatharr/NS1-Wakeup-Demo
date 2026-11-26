@@ -7,6 +7,7 @@
 #include "boot_ctrl.h"
 #include "wake_mode.h"
 #include "wifi_mode.h"
+#include "status_led.h"
 #include "wake_cycle.h"
 #include "link_state.h"
 
@@ -67,6 +68,7 @@ void app_main(void)
     if (reason == ESP_RST_SW && s_boot_mode == BOOT_WAKE) {
         if (s_wake_boots < WAKE_BOOT_LIMIT) {
             ++s_wake_boots;
+            status_led_start(STATUS_LED_WAKE, false);
             wake_main();
             return;
         }
@@ -84,5 +86,7 @@ void app_main(void)
     s_wake_boots = 0;
     g_restart_marker = 0;
     g_cycle_wake_tries = 0;
+    status_led_start(STATUS_LED_WIFI_WAIT,
+                     s_pending_error > WAKE_OK && s_pending_error <= WAKE_ERR_HID);
     wifi_main();
 }

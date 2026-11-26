@@ -1,5 +1,6 @@
 #include "wifi_mode.h"
 #include "boot_ctrl.h"
+#include "status_led.h"
 
 #include <errno.h>
 #include <string.h>
@@ -45,6 +46,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t base,
     } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
         // Invalidate IP readiness and notify the caller of failure.
         // Reconnection policy is deliberately left to the caller.
+        status_led_set(STATUS_LED_WIFI_WAIT);
         xEventGroupClearBits(s_wifi_events, WIFI_IP_READY);
         s_connect_error = ESP_FAIL;
         xEventGroupSetBits(s_wifi_events, WIFI_CONNECT_FAILED);
@@ -206,6 +208,8 @@ static esp_err_t wifi_listen(void)
         return ESP_FAIL;
     }
 
+    status_led_set(STATUS_LED_READY);
+
     // One extra byte beyond the trigger length rejects longer datagrams
     // even when recvfrom truncates them to the size of this buffer.
     char packet[sizeof(WIFI_WAKE_TRIGGER)];
@@ -240,4 +244,5 @@ void wifi_main(void)
     // Blocks until a wake command is received or the socket fails.
     // Connection recovery is handled separately in a later stage.
     wifi_listen();
+    status_led_set(STATUS_LED_WIFI_WAIT);
 }
